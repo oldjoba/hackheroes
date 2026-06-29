@@ -136,6 +136,14 @@ x-data="{
   successOpen:false,
   showTokenBanner:false,
   correctToken:'',
+  // Class "sequence" flow (one-at-a-time). Populated when a challenge is
+  // completed while the student is in a class.
+  flow:{ inClass:false, total:0, position:0, doneCount:0, nextId:null, allDone:false },
+  async refreshFlow() {
+    if (!(window.ClassroomSync && ClassroomSync.isInClass())) return;
+    try { this.flow = await ClassroomSync.getClassFlow(this.challenge.id); }
+    catch (e) { /* non-fatal */ }
+  },
   get urlAllowList() {
     dir = this.challenge.id;
     return this.challenge.assets.map(asset => `${dir}/${asset.file}`);
@@ -197,8 +205,13 @@ x-init="
     // Timeouts prevent flicker
     setTimeout(function(){showPage = true},100);
     setTimeout(function(){hideLoader = true},500);
-  })
-">   
+  });
+  // When the success modal opens in class mode, work out the next challenge in
+  // the sequence (give the debounced progress upsert a moment to land first).
+  $watch('successOpen', (open) => {
+    if (open) { setTimeout(() => { refreshFlow(); }, 900); }
+  });
+">
 
 <!--
   Loader Modal
@@ -308,17 +321,39 @@ x-init="
         </div>
         <div class="content" x-html="success">
         </div>
+
+        <!-- Class sequence: progress + next challenge -->
+        <template x-if="flow.inClass">
+          <div class="mb-4">
+            <p class="heading mb-1">
+              Your class progress —
+              <strong x-text="flow.doneCount"></strong> of
+              <strong x-text="flow.total"></strong> done
+            </p>
+            <progress class="progress is-success" :value="flow.doneCount" :max="Math.max(flow.total,1)"></progress>
+          </div>
+        </template>
+
         <div class="buttons is-centered">
-            <a class="button is-primary" href="index.html">
-              <span class="icon">
-                <ion-icon name="arrow-back"></ion-icon>
-              </span> 
+            <!-- Class mode: jump straight to the next unfinished challenge -->
+            <a class="button is-link is-medium" x-show="flow.inClass && flow.nextId" x-cloak
+               :href="'challenge.html?id='+flow.nextId">
+              <span>Next challenge</span>
+              <span class="icon"><ion-icon name="arrow-forward"></ion-icon></span>
+            </a>
+            <!-- Class mode: everything finished -->
+            <a class="button is-warning is-medium" x-show="flow.inClass && flow.allDone" x-cloak
+               href="index.html">
+              <span class="icon"><ion-icon name="trophy-outline"></ion-icon></span>
+              <span>🎉 All done! See the leaderboard area</span>
+            </a>
+            <!-- Default (not in a class, or fallback) -->
+            <a class="button is-primary" x-show="!flow.inClass" x-cloak href="index.html">
+              <span class="icon"><ion-icon name="arrow-back"></ion-icon></span>
               <span>Find Your Next Mission!</span>
             </a>
             <button class="button" @click="successOpen=false">
-              <span class="icon">
-                <ion-icon name="close"></ion-icon>
-              </span> 
+              <span class="icon"><ion-icon name="close"></ion-icon></span>
               <span>Close</span>
             </button>
         </div>

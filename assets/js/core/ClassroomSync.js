@@ -155,6 +155,56 @@
       return (data || []).map((r) => r.challenge_id);
     },
 
+    /**
+     * Returns the set of challenge ids the CURRENT student has completed in a
+     * class, as a Set<string>. Used to drive the one-at-a-time class flow.
+     */
+    async getMyCompleted(classId) {
+      const sb = await client();
+      const done = new Set();
+      if (!sb) return done;
+      const session = this.getSession();
+      if (!session || !session.studentId) return done;
+      const { data, error } = await sb
+        .from('progress')
+        .select('challenge_id, completed')
+        .eq('class_id', classId)
+        .eq('student_id', session.studentId);
+      if (error) {
+        console.warn('[HackHeroes] getMyCompleted failed:', error.message);
+        return done;
+      }
+      (data || []).forEach((r) => { if (r.completed) done.add(r.challenge_id); });
+      return done;
+    },
+
+    /**
+     * Given the current challenge id, work out the class "sequence" position
+     * and the next UNFINISHED assigned challenge.
+     * Returns { inClass, total, position, doneCount, nextId, allDone }.
+     */
+    async getClassFlow(currentChallengeId) {
+      const out = { inClass:false, total:0, position:0, doneCount:0, nextId:null, allDone:false };
+      if (!this.isInClass()) return out;
+      const session = this.getSession();
+      const assigned = await this.getAssignments(session.classId);
+      if (!assigned.length) return out;
+      const done = await this.getMyCompleted(session.classId);
+      out.inClass = true;
+      out.total = assigned.length;
+      out.doneCount = done.size;
+      // 1-based position of the current challenge in the assigned order (if present)
+      const idx = assigned.indexOf(currentChallengeId);
+      out.position = idx >= 0 ? idx + 1 : 0;
+      // Next unfinished challenge: prefer the first unfinished AFTER the current
+      // one, else the first unfinished anywhere.
+      const after = assigned.slice(idx + 1).find((id) => !done.has(id));
+      const anyUnfinished = assigned.find((id) => !done.has(id) && id !== currentChallengeId);
+      out.nextId = after || anyUnfinished || null;
+      out.allDone = assigned.every((id) => done.has(id));
+      return out;
+    },
+
     // ============================================================
     // Engine hook: push progress to Supabase (debounced)
     // ============================================================
