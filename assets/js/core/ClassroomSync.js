@@ -111,14 +111,15 @@
      * @param {string} code
      * @param {string} nickname
      */
-    async joinClass(code, nickname) {
+    async joinClass(code, nickname, avatar) {
       const sb = await client();
       if (!sb) throw new Error('Classroom features are not configured.');
       await this.ensureAnonAuth();
 
       const { data, error } = await sb.rpc('join_class', {
         p_code: code,
-        p_nickname: nickname
+        p_nickname: nickname,
+        p_avatar: avatar || null
       });
       if (error) throw error;
       // RPC returns a single-row table.
@@ -144,7 +145,8 @@
         studentId: row.student_id,
         classId: row.class_id,
         className: row.class_name,
-        nickname: nickname.trim().slice(0, 24)
+        nickname: nickname.trim().slice(0, 24),
+        avatar: row.avatar || avatar || ''
       };
       writeSession(session);
       return session;

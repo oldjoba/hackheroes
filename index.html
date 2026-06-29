@@ -156,7 +156,7 @@
     
     <section class="section pt-3 pb-0" x-show="classSession" x-cloak>
       <div class="notification is-info has-text-centered">
-        🎒 Playing as <strong x-text="classSession?.nickname"></strong>
+        🎒 Playing as <span x-text="classSession?.avatar"></span> <strong x-text="classSession?.nickname"></strong>
         in <strong x-text="classSession?.className"></strong>.
         &nbsp;<a class="is-underlined" @click.prevent="ClassroomSync.clearSession(); location.reload();">Leave class</a>
       </div>

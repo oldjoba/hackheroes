@@ -51,6 +51,10 @@ create table if not exists public.students (
 );
 create index if not exists students_class_idx on public.students (class_id);
 create index if not exists students_uid_idx    on public.students (auth_uid);
+-- Student avatar (an emoji chosen at join time). Added via ALTER so existing
+-- databases pick it up too.
+alter table public.students add column if not exists avatar text;
+
 
 -- Assignments: which challenge ids a class must complete.
 create table if not exists public.assignments (
@@ -120,8 +124,10 @@ $$;
 -- their student row for the current auth.uid().
 -- =====================================================================
 
-create or replace function public.join_class(p_code text, p_nickname text)
-returns table (student_id uuid, class_id uuid, class_name text)
+drop function if exists public.join_class(text, text);
+
+create or replace function public.join_class(p_code text, p_nickname text, p_avatar text default null)
+returns table (student_id uuid, class_id uuid, class_name text, avatar text)
 language plpgsql
 security definer
 set search_path = public
@@ -130,6 +136,7 @@ declare
   v_class   public.classes;
   v_student public.students;
   v_nick    text;
+  v_avatar  text;
 begin
   if auth.uid() is null then
     raise exception 'You must be signed in to join a class.';
@@ -139,6 +146,8 @@ begin
   if v_nick is null then
     raise exception 'Please choose a nickname.';
   end if;
+
+  v_avatar := nullif(left(trim(coalesce(p_avatar, '')), 8), '');
 
   select * into v_class
     from public.classes
@@ -154,20 +163,22 @@ begin
    where s.class_id = v_class.id and s.auth_uid = auth.uid();
 
   if not found then
-    insert into public.students (class_id, auth_uid, nickname)
-    values (v_class.id, auth.uid(), v_nick)
+    insert into public.students (class_id, auth_uid, nickname, avatar)
+    values (v_class.id, auth.uid(), v_nick, v_avatar)
     returning * into v_student;
   else
-    update public.students set nickname = v_nick
+    update public.students
+       set nickname = v_nick,
+           avatar   = coalesce(v_avatar, students.avatar)
      where id = v_student.id
     returning * into v_student;
   end if;
 
-  return query select v_student.id, v_class.id, v_class.name;
+  return query select v_student.id, v_class.id, v_class.name, v_student.avatar;
 end;
 $$;
 
-grant execute on function public.join_class(text, text) to authenticated, anon;
+grant execute on function public.join_class(text, text, text) to authenticated, anon;
 
 
 -- =====================================================================

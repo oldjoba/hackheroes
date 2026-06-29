@@ -18,6 +18,22 @@
   <link rel="stylesheet" href="assets/vendor/css/bulma.min.css">
   <link rel="stylesheet" href="assets/css/main.css">
 
+  <style>
+    .avatar-grid {
+      display:grid; grid-template-columns:repeat(auto-fill, minmax(3rem, 1fr));
+      gap:.5rem;
+    }
+    .avatar-btn {
+      font-size:1.6rem; line-height:1; padding:.4rem; cursor:pointer;
+      border:2px solid transparent; border-radius:.75rem; background:rgba(255,255,255,.06);
+      transition:transform .1s ease, border-color .1s ease, background .1s ease;
+    }
+    .avatar-btn:hover { transform:scale(1.12); background:rgba(255,255,255,.12); }
+    .avatar-btn.is-selected {
+      border-color:#48c78e; background:rgba(72,199,142,.22); transform:scale(1.1);
+    }
+  </style>
+
   <script defer src="assets/vendor/js/alpine.min.js"></script>
 </head>
 
@@ -25,12 +41,16 @@
   x-data="{
     code: (new URLSearchParams(location.search).get('code') || '').toUpperCase(),
     nickname: '',
+    avatar: '🦸',
+    avatars: ['🦸','🥷','🦹','🧑‍💻','🕵️','🦊','🐱','🐲','🦄','🐼','🐯','🦁','🐸','🐙','🦉','👽','🤖','🐝','🦖','🐳','⚡','🔥'],
     loading: false,
     error: '',
     configured: false,
     async init() {
       await window.xaSupabaseReady;
       this.configured = window.xaSupabaseConfigured();
+      // Pick a random starting avatar so they're not all the same.
+      this.avatar = this.avatars[Math.floor(Math.random() * this.avatars.length)];
       // If already in a class, offer to continue.
       const s = ClassroomSync.getSession();
       if (s) { this.existing = s; }
@@ -43,7 +63,7 @@
       this.loading = true;
       try {
         await ClassroomSync.ensureAnonAuth();
-        await ClassroomSync.joinClass(this.code.trim(), this.nickname.trim());
+        await ClassroomSync.joinClass(this.code.trim(), this.nickname.trim(), this.avatar);
         location.href = 'index.html';
       } catch (e) {
         this.error = (e && e.message) ? e.message : 'Could not join. Check the code and try again.';
@@ -116,6 +136,18 @@
                   </span>
                 </div>
                 <p class="help">No email or password needed. Don't use your full real name.</p>
+              </div>
+
+              <!-- Avatar picker -->
+              <div class="field">
+                <label class="label">Choose your avatar <span x-text="avatar" class="ml-1"></span></label>
+                <div class="avatar-grid">
+                  <template x-for="a in avatars" :key="a">
+                    <button type="button" class="avatar-btn"
+                            :class="avatar===a ? 'is-selected' : ''"
+                            @click="avatar=a" x-text="a"></button>
+                  </template>
+                </div>
               </div>
 
               <div class="notification is-danger is-light py-2" x-show="error" x-cloak x-text="error"></div>
