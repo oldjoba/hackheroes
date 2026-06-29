@@ -1,16 +1,12 @@
-# Keep the site image small. NOTE: nginx.conf is intentionally NOT ignored —
-# the Dockerfile copies it.
+# Keep build context lean but KEEP everything the all-in-one root Dockerfile
+# needs (web app, config/, selfhost/zzz-hackheroes-schema.sql, hh-*.sh,
+# nginx.allinone.conf). The Dockerfile prunes non-web files from the served
+# dir itself, so we only exclude truly unnecessary things here.
 .git
-.gitignore
+.github
 .DS_Store
 **/.DS_Store
-
-# Server-side SQL / self-host stack files (not web content).
-supabase/
-selfhost/
-
-# Stack config + compose (not part of the served site).
-.env
-docker-compose.yml
-docker-compose.easypanel.yml
-DEPLOY-EASYPANEL.md
+node_modules
+allinone
+# NOTE: do NOT ignore selfhost/ — the schema lives there and the build needs it.
+# NOTE: .env is copied into context but pruned from the served dir by the Dockerfile.

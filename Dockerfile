@@ -1,40 +1,70 @@
-# Hack Heroes — static site container
+# =====================================================================
+# Hack Heroes — ROOT Dockerfile = ALL-IN-ONE single-container build.
 #
-# This serves the static Hack Heroes site (and the optional classroom layer)
-# with nginx. The site is pure HTML/JS/CSS with all libraries loaded from CDNs,
-# so the image is tiny and needs no build step.
+# This is what Easypanel builds when you upload the repo (zip) as an App
+# service: Postgres + GoTrue (auth) + PostgREST (rest) + nginx in ONE
+# container, started by a bash supervisor, listening on :8080.
 #
-# Build:  docker build -t hackheroes .
-# Run:    docker run --rm -p 8080:8080 hackheroes
-# Open:   http://localhost:8080
+# Deploy on Easypanel:
+#   1. + Service -> App
+#   2. Source: Upload (the repo zip) -- or connect the GitHub repo.
+#   3. Build: Dockerfile (this file, repo root). Build context = repo root.
+#   4. Deploy. Then Domains tab -> add your host -> Port 8080 -> HTTPS.
+#   5. Add a Volume mounted at /var/lib/postgresql/data to persist data.
 #
-# To use the classroom features, edit config/supabase.json (or mount your own
-# at runtime, see README / docker-compose.yml).
+# Live leaderboard uses a 4s POLLING fallback (dashboard.html), so it works
+# without the Realtime service -- which avoids the Realtime/glibc mismatch
+# (Realtime is a Debian-12/glibc-2.36 release; this base is Ubuntu 20.04).
+#
+# Build context is the REPO ROOT, so all COPY paths are repo-relative.
+# =====================================================================
 
-FROM nginx:1.27-alpine
+FROM supabase/gotrue:v2.151.0    AS gotrue
+FROM postgrest/postgrest:v12.2.0 AS postgrest
 
-# Run nginx as the unprivileged built-in user on a non-privileged port (8080).
-# nginx:alpine already ships an "nginx" user; we just point everything at 8080.
-RUN rm /etc/nginx/conf.d/default.conf
+FROM supabase/postgres:15.1.1.78
 
-# Site content
-COPY . /usr/share/nginx/html
+USER root
 
-# Our server config
-COPY nginx.conf /etc/nginx/conf.d/hackheroes.conf
+# nginx + curl + libpq5 (postgrest is dynamically linked).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      nginx curl ca-certificates libpq5 \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -f /etc/nginx/sites-enabled/default
 
-# Drop files that shouldn't be web-served (defence in depth; .dockerignore
-# already excludes most). Keep config/, challenges/, assets/.
-RUN rm -f /usr/share/nginx/html/Dockerfile \
-          /usr/share/nginx/html/.dockerignore \
-          /usr/share/nginx/html/docker-compose.yml \
-          /usr/share/nginx/html/nginx.conf
+# GoTrue: static Go binary + its bundled migrations (applied from ./migrations
+# relative to the CWD the supervisor uses: /usr/local/etc/auth).
+COPY --from=gotrue /usr/local/bin/auth /usr/local/bin/auth
+COPY --from=gotrue /usr/local/etc/auth /usr/local/etc/auth
+
+# PostgREST: distroless image keeps the binary at /bin/postgrest.
+COPY --from=postgrest /bin/postgrest /usr/local/bin/postgrest
+
+# ---- web app (repo root) -> nginx html ----
+COPY . /usr/share/nginx/html/
+RUN cd /usr/share/nginx/html \
+    && rm -rf .git .github allinone selfhost supabase node_modules \
+              Dockerfile Dockerfile.site-only .dockerignore docker-compose.yml \
+              docker-compose.easypanel.yml nginx.conf nginx.allinone.conf \
+              hh-supervisor.sh hh-roles.sh DEPLOY-EASYPANEL.md \
+              DEPLOY-EASYPANEL-APPS.md .env
+
+# nginx gateway (all-in-one: upstreams are 127.0.0.1) + prod browser config.
+COPY nginx.allinone.conf /etc/nginx/conf.d/hackheroes.conf
+COPY config/supabase.prod.json /usr/share/nginx/html/config/supabase.json
+
+# ---- DB init scripts (run by the official entrypoint on first boot) ----
+COPY selfhost/zzz-hackheroes-schema.sql /docker-entrypoint-initdb.d/zzz-hackheroes-schema.sql
+COPY hh-roles.sh                        /docker-entrypoint-initdb.d/zzz-zzz-roles.sh
+
+# ---- supervisor ----
+COPY hh-supervisor.sh /usr/local/bin/hh-supervisor.sh
+RUN chmod +x /usr/local/bin/hh-supervisor.sh \
+            /docker-entrypoint-initdb.d/zzz-zzz-roles.sh
+
+# Persist the database (mount a volume here in Easypanel).
+VOLUME ["/var/lib/postgresql/data"]
 
 EXPOSE 8080
 
-# Healthcheck hits the homepage on the IPv4 loopback explicitly (the busybox
-# wget in nginx:alpine can fail to resolve "localhost" inside the container).
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1
-
-CMD ["nginx", "-g", "daemon off;"]
+ENTRYPOINT ["/usr/local/bin/hh-supervisor.sh"]

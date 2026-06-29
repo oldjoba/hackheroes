@@ -197,6 +197,7 @@
         winner: '',               // nickname of first finisher
         _finishSeq: 0,
         channel: null,
+        _pollTimer: null,         // polling fallback handle (live updates w/o websocket)
         _tick: 0,                 // bumped on a timer so relative times refresh
 
         get standings() {
@@ -269,12 +270,48 @@
             (prog.data || []).forEach((p) => this.applyProgress(p, true));
 
             this.ready = true;
+            // Live updates via Realtime websocket when available…
             this.subscribe();
+            // …PLUS a polling fallback so the leaderboard updates live even
+            // when the Realtime service isn't present (e.g. the all-in-one
+            // single-container deploy). Cheap class-scoped selects every 4s.
+            this.startPolling();
             // Refresh relative "last active" timestamps periodically.
             setInterval(() => { this._tick++; }, 15000);
           } catch (e) {
             this.error = (e && e.message) ? e.message : 'Could not load the dashboard.';
           }
+        },
+
+        // Polling fallback: re-fetch students + progress and diff against what
+        // we already have, so new students and completions animate live (with
+        // confetti) without depending on the websocket.
+        startPolling() {
+          if (this._pollTimer) return;
+          const sb = window.xaSupabase;
+          this._pollTimer = setInterval(async () => {
+            if (document.hidden) return; // pause when tab not visible
+            try {
+              const stu = await sb.from('students')
+                .select('id, nickname').eq('class_id', this.classId);
+              if (!stu.error) {
+                (stu.data || []).forEach((s) => this.ensureStudent(s.id, s.nickname));
+              }
+              const prog = await sb.from('progress')
+                .select('*').eq('class_id', this.classId);
+              if (!prog.error) {
+                (prog.data || []).forEach((p) => {
+                  // Only animate when this row is actually newer than what we
+                  // have, so polling doesn't re-flash unchanged rows.
+                  const s = this.students[p.student_id];
+                  const seenAt = s && s.lastActivity ? Date.parse(s.lastActivity) : 0;
+                  const rowAt = Date.parse(p.updated_at || p.completed_at || 0) || 0;
+                  const isNew = rowAt > seenAt;
+                  this.applyProgress(p, !isNew);
+                });
+              }
+            } catch (_) { /* transient network blips are fine */ }
+          }, 4000);
         },
 
         ensureStudent(id, nickname) {
@@ -343,21 +380,26 @@
         },
 
         subscribe() {
-          const sb = window.xaSupabase;
-          this.channel = sb.channel('class-' + this.classId)
-            .on('postgres_changes',
-              { event: '*', schema: 'public', table: 'progress', filter: 'class_id=eq.' + this.classId },
-              (payload) => {
-                const p = payload.new || payload.old;
-                if (p) this.applyProgress(p, false);
-              })
-            .on('postgres_changes',
-              { event: 'INSERT', schema: 'public', table: 'students', filter: 'class_id=eq.' + this.classId },
-              (payload) => {
-                const s = payload.new;
-                if (s) this.ensureStudent(s.id, s.nickname);
-              })
-            .subscribe();
+          // Best-effort: if the Realtime service isn't present (all-in-one
+          // deploy) this simply won't deliver events — the polling fallback
+          // keeps the board live regardless. Never let it throw.
+          try {
+            const sb = window.xaSupabase;
+            this.channel = sb.channel('class-' + this.classId)
+              .on('postgres_changes',
+                { event: '*', schema: 'public', table: 'progress', filter: 'class_id=eq.' + this.classId },
+                (payload) => {
+                  const p = payload.new || payload.old;
+                  if (p) this.applyProgress(p, false);
+                })
+              .on('postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'students', filter: 'class_id=eq.' + this.classId },
+                (payload) => {
+                  const s = payload.new;
+                  if (s) this.ensureStudent(s.id, s.nickname);
+                })
+              .subscribe();
+          } catch (_) { /* realtime optional; polling covers live updates */ }
         },
 
         relTime(iso) {
