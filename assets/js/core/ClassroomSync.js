@@ -125,6 +125,21 @@
       const row = Array.isArray(data) ? data[0] : data;
       if (!row) throw new Error('Could not join the class. Check the code and try again.');
 
+      // IMPORTANT (shared/classroom devices): challenge progress is stored in a
+      // single localStorage key shared by everyone on this device. If a DIFFERENT
+      // student now joins (or the same student joins a different class), wipe that
+      // local state so they don't inherit the previous player's cached answers —
+      // which would make challenges look already-solved ("win without playing")
+      // and the game behave oddly.
+      try {
+        const prev = readSession();
+        const sameStudentSameClass =
+          prev && prev.studentId === row.student_id && prev.classId === row.class_id;
+        if (!sameStudentSameClass) {
+          localStorage.removeItem('state'); // StorageHandler's key
+        }
+      } catch (e) { /* localStorage may be unavailable; non-fatal */ }
+
       const session = {
         studentId: row.student_id,
         classId: row.class_id,

@@ -209,7 +209,9 @@ x-init="
   // When the success modal opens in class mode, work out the next challenge in
   // the sequence (give the debounced progress upsert a moment to land first).
   $watch('successOpen', (open) => {
-    if (open) { setTimeout(() => { refreshFlow(); }, 900); }
+    if (open && typeof refreshFlow === 'function') {
+      setTimeout(() => { try { refreshFlow(); } catch (e) {} }, 900);
+    }
   });
 ">
 
