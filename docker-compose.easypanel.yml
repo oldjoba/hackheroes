@@ -1,0 +1,166 @@
+# =====================================================================
+# Hack Heroes — Easypanel "Compose" deployment
+# Domain: heroes.beonflow.de   (served via Easypanel's Traefik + auto-SSL)
+#
+# HOW TO USE IN EASYPANEL
+#   1. Create a new service of type "Compose".
+#   2. Point it at this repo and set the compose file path to
+#      docker-compose.easypanel.yml
+#   3. Deploy. Traefik picks up the labels on the `site` service and
+#      routes https://heroes.beonflow.de -> site:8080 with a free cert.
+#
+# Notes vs the local docker-compose.yml:
+#   - No host ports are published. Easypanel's Traefik reaches the site
+#     container over the shared `easypanel` network using the labels below.
+#   - The browser only talks to https://heroes.beonflow.de; nginx (inside
+#     `site`) reverse-proxies /auth/v1, /rest/v1, /realtime/v1 to the
+#     backend services on the internal network.
+#   - All config lives in this file's `environment:` blocks (Easypanel
+#     compose doesn't read a separate .env by default).
+# =====================================================================
+
+services:
+
+  db:
+    image: supabase/postgres:15.1.1.78
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: hackheroes-dev-postgres-pw
+      POSTGRES_PORT: "5432"
+      JWT_SECRET: hackheroes-super-secret-dev-jwt-secret-min-32-chars-long-0001
+      JWT_EXP: "3600"
+    volumes:
+      - hh-db-data:/var/lib/postgresql/data
+      - ./selfhost/zzz-hackheroes-schema.sql:/docker-entrypoint-initdb.d/zzz-hackheroes-schema.sql:ro
+
+  db-setup:
+    image: supabase/postgres:15.1.1.78
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["sh", "/setup-roles.sh"]
+    environment:
+      POSTGRES_PASSWORD: hackheroes-dev-postgres-pw
+      POSTGRES_DB: postgres
+      DB_HOST: db
+    volumes:
+      - ./selfhost/setup-roles.sh:/setup-roles.sh:ro
+
+  auth:
+    image: supabase/gotrue:v2.151.0
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      db-setup:
+        condition: service_completed_successfully
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: "9999"
+      API_EXTERNAL_URL: https://heroes.beonflow.de
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:hackheroes-dev-postgres-pw@db:5432/postgres?search_path=auth&sslmode=disable
+      GOTRUE_SITE_URL: https://heroes.beonflow.de
+      GOTRUE_URI_ALLOW_LIST: "*"
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_SECRET: hackheroes-super-secret-dev-jwt-secret-min-32-chars-long-0001
+      GOTRUE_JWT_EXP: "3600"
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "true"
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_SMTP_ADMIN_EMAIL: admin@beonflow.de
+      GOTRUE_SMTP_SENDER_NAME: Hack Heroes
+
+  rest:
+    image: postgrest/postgrest:v12.2.0
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      db-setup:
+        condition: service_completed_successfully
+    environment:
+      PGRST_DB_URI: postgres://authenticator:hackheroes-dev-postgres-pw@db:5432/postgres?sslmode=disable
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: hackheroes-super-secret-dev-jwt-secret-min-32-chars-long-0001
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: hackheroes-super-secret-dev-jwt-secret-min-32-chars-long-0001
+      PGRST_APP_SETTINGS_JWT_EXP: "3600"
+
+  realtime:
+    image: supabase/realtime:v2.30.23
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      db-setup:
+        condition: service_completed_successfully
+    environment:
+      PORT: "4000"
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: supabase_admin
+      DB_PASSWORD: hackheroes-dev-postgres-pw
+      DB_NAME: postgres
+      DB_AFTER_CONNECT_QUERY: "SET search_path TO realtime"
+      DB_ENC_KEY: supabaserealtime
+      API_JWT_SECRET: hackheroes-super-secret-dev-jwt-secret-min-32-chars-long-0001
+      SECRET_KEY_BASE: hackheroes-dev-realtime-secret-key-base-please-change-0000000001
+      ERL_AFLAGS: -proto_dist inet_tcp
+      DNS_NODES: "''"
+      RLIMIT_NOFILE: "10000"
+      APP_NAME: realtime
+      SEED_SELF_HOST: "true"
+      RUN_JANITOR: "true"
+
+  realtime-setup:
+    image: alpine:3.20
+    restart: "no"
+    depends_on:
+      - realtime
+    entrypoint: ["sh", "-c", "apk add --no-cache curl >/dev/null && sh /setup-realtime-tenant.sh"]
+    environment:
+      REALTIME_URL: http://realtime:4000
+      # Register every host form the client might use so the leaderboard
+      # websocket finds its tenant regardless of how Realtime parses the host.
+      TENANT_EXTERNAL_IDS: "heroes.beonflow.de,heroes,localhost"
+      JWT_SECRET: hackheroes-super-secret-dev-jwt-secret-min-32-chars-long-0001
+      ADMIN_JWT: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwiaWF0IjoxNzA0MDY3MjAwLCJleHAiOjIwMTk2NjcyMDAsInJvbGUiOiJzZXJ2aWNlX3JvbGUifQ.aNz9ykNuOLKiGMY_fszQIfiQQEcezpJHCIpVCVVBORs
+      DB_HOST: db
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: hackheroes-dev-postgres-pw
+    volumes:
+      - ./selfhost/setup-realtime-tenant.sh:/setup-realtime-tenant.sh:ro
+
+  # The web frontend. Easypanel's Traefik binds your domain to THIS service.
+  # Do NOT add Traefik labels here — in Easypanel you map the domain in the
+  # UI: Service "site" -> Domains -> add heroes.beonflow.de -> port 8080.
+  # nginx (inside this container) reverse-proxies /auth/v1, /rest/v1, and
+  # /realtime/v1 to the backend services on the internal compose network, so
+  # the browser only ever talks to https://heroes.beonflow.de.
+  site:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - auth
+      - rest
+      - realtime
+    # Override the baked-in supabase.json so the browser targets the public domain.
+    volumes:
+      - ./config/supabase.prod.json:/usr/share/nginx/html/config/supabase.json:ro
+
+volumes:
+  hh-db-data:

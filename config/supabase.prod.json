@@ -1,0 +1,10 @@
+{
+  "_meta": {
+    "project": "Hack Heroes",
+    "file": "supabase.prod.json",
+    "description": "Production runtime config for the Easypanel deployment. Points the browser at the public domain; nginx (in the site container) reverse-proxies /auth/v1, /rest/v1, /realtime/v1 to the backend. The anon key is public by design; access is enforced by Postgres RLS.",
+    "usage": "Mounted over config/supabase.json by docker-compose.easypanel.yml."
+  },
+  "url": "https://heroes.beonflow.de",
+  "anonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwiaWF0IjoxNzA0MDY3MjAwLCJleHAiOjIwMTk2NjcyMDAsInJvbGUiOiJhbm9uIn0.27yAQryhuU2kTej08soR0beq_Kyad3reNxqXvwYQZVE"
+}

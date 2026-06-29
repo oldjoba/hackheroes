@@ -12,3 +12,5 @@ selfhost/
 # Stack config + compose (not part of the served site).
 .env
 docker-compose.yml
+docker-compose.easypanel.yml
+DEPLOY-EASYPANEL.md
