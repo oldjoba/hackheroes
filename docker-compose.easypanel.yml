@@ -199,13 +199,15 @@ services:
 
   # The web frontend. In Easypanel, map your domain to THIS service in the
   # Domains tab: Host heroes.beonflow.de -> Service site -> Port 8080.
+  #
+  # NOTE: no `depends_on` here on purpose. nginx resolves the auth/rest/realtime
+  # upstreams LAZILY (per-request via Docker DNS), so `site` can — and should —
+  # start immediately and serve the page even while the backend is still booting.
+  # Gating `site` behind the backend caused Traefik 502s (no container to route
+  # to until realtime finished starting).
   site:
     image: ghcr.io/oldjoba/hackheroes-site:latest
     restart: unless-stopped
-    depends_on:
-      - auth
-      - rest
-      - realtime
 
 volumes:
   hh-db-data:
