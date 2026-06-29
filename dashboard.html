@@ -134,13 +134,13 @@
     <!-- Prize card: mystery until someone wins, then revealed -->
     <div class="prize-card" x-show="ready && hasPrize" x-cloak>
       <p class="heading mb-1" style="letter-spacing:.1em">🎁 Winner's Prize</p>
-      <template x-if="!winner">
+      <template x-if="!prize">
         <p class="prize-mystery">Mystery prize — finish first to reveal it! 🔒</p>
       </template>
-      <template x-if="winner">
+      <template x-if="prize">
         <div class="prize-pop">
           <p class="prize-reveal" x-text="prize"></p>
-          <p class="is-size-6 mt-1">won by <strong x-text="winner"></strong> 🏆</p>
+          <p class="is-size-6 mt-1" x-show="winner">won by <strong x-text="winner"></strong> 🏆</p>
         </div>
       </template>
     </div>
@@ -184,6 +184,7 @@
             <th class="has-text-centered">Done</th>
             <th class="has-text-centered">Hints</th>
             <th>Last active</th>
+            <th class="has-text-centered" x-show="isOwner" style="width:5rem"></th>
           </tr>
         </thead>
         <tbody>
@@ -213,6 +214,13 @@
               </td>
               <td class="has-text-centered" x-text="row.hints"></td>
               <td x-text="row.lastActivityText"></td>
+              <td class="has-text-centered" x-show="isOwner">
+                <button class="button is-small is-danger is-light"
+                        :class="row._kicking ? 'is-loading' : ''"
+                        @click="kickStudent(row)" title="Remove from class">
+                  <span class="icon"><ion-icon name="person-remove-outline"></ion-icon></span>
+                </button>
+              </td>
             </tr>
           </template>
         </tbody>
@@ -258,11 +266,13 @@
         students: {},             // studentId -> { studentId, nickname, done:Set, hints, lastActivity, finishedAll, _flash, _finishOrder }
         ready: false,
         error: '',
+        isOwner: false,           // is the viewer the teacher who owns this class?
         winner: '',               // nickname of first finisher
         _finishSeq: 0,
         channel: null,
         _pollTimer: null,         // polling fallback handle (live updates w/o websocket)
         _tick: 0,                 // bumped on a timer so relative times refresh
+        _kicked: {},              // studentId -> true; suppress re-add after a kick
 
         get standings() {
           this._tick; // reactive dependency so times re-render on tick
@@ -306,12 +316,24 @@
           try {
             const sb = window.xaSupabase;
 
-            // Class name + winner prize
-            const cls = await sb.from('classes').select('name, prize').eq('id', this.classId).single();
+            // Class name (prize-free view — the prize text is NEVER selected
+            // directly, so it can't leak to the browser before someone wins).
+            const cls = await sb.from('classes_public').select('name').eq('id', this.classId).single();
             if (cls.error) throw cls.error;
             this.className = cls.data.name;
-            this.prize = cls.data.prize || '';
-            this.hasPrize = !!(cls.data.prize && cls.data.prize.trim());
+
+            // Owner check: only the teacher who owns the class can SELECT the
+            // base classes row (RLS). Students get no rows back. This decides
+            // whether to show teacher-only controls like "remove student".
+            const own = await sb.from('classes').select('id').eq('id', this.classId).maybeSingle();
+            this.isOwner = !own.error && !!own.data;
+
+            // Does this class have a prize? (boolean only — no text.)
+            const hp = await sb.rpc('class_has_prize', { c_id: this.classId });
+            this.hasPrize = !hp.error && hp.data === true;
+            // The actual prize text is fetched ONLY once a winner exists,
+            // and the server returns null until then. See refreshPrize().
+            await this.refreshPrize();
 
             // Assignments
             const asg = await sb.from('assignments')
@@ -381,6 +403,7 @@
         },
 
         ensureStudent(id, nickname, avatar) {
+          if (this._kicked[id]) return null; // stays removed even if polling sees a stale row
           if (!this.students[id]) {
             this.students[id] = {
               studentId: id,
@@ -402,6 +425,7 @@
 
         applyProgress(p, silent) {
           const s = this.ensureStudent(p.student_id, null);
+          if (!s) return; // kicked student — ignore late progress rows
 
           // Track per-challenge completion in the done set.
           if (p.completed) s.done.add(p.challenge_id);
@@ -426,9 +450,45 @@
             s._finishOrder = ++this._finishSeq;
             if (!this.winner) this.winner = s.nickname;
             if (!silent) this.celebrate(s);
+            // Someone just won — ask the server to release the prize text.
+            this.refreshPrize();
           }
 
           if (!silent) this.flash(s);
+        },
+
+        // Fetch the prize text from the server. The RPC returns null until a
+        // student has finished every assigned challenge, so the actual text
+        // never reaches any browser early — not even the teacher's.
+        async refreshPrize() {
+          if (!this.hasPrize || this.prize) return;
+          try {
+            const r = await window.xaSupabase.rpc('get_prize_if_won', { c_id: this.classId });
+            if (!r.error && r.data) this.prize = r.data;
+          } catch (_) { /* try again on the next winner event */ }
+        },
+
+        // Teacher-only: remove a student (and their progress) from the class.
+        async kickStudent(row) {
+          if (!this.isOwner) return;
+          if (!confirm('Remove ' + (row.nickname || 'this student') + ' from the class? Their progress will be deleted.')) return;
+          row._kicking = true;
+          try {
+            const r = await window.xaSupabase.rpc('kick_student', { p_student_id: row.studentId });
+            if (r.error) throw r.error;
+            // Drop them from the board immediately and keep them out (polling
+            // would otherwise re-add them until its next round-trip catches up).
+            this._kicked[row.studentId] = true;
+            delete this.students[row.studentId];
+            // If we removed the winner, recompute who's first.
+            if (this.winner === row.nickname) {
+              const s = this.standings.find((x) => x.finishedAll);
+              this.winner = s ? s.nickname : '';
+            }
+          } catch (e) {
+            alert((e && e.message) ? e.message : 'Could not remove that student.');
+            row._kicking = false;
+          }
         },
 
         flash(s) {

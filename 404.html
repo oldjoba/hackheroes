@@ -1,12 +1,122 @@
 <!--
   Project: Hack Heroes
   File: 404.html
-  Description: Not found page for in-challenge browser
-  Author: Chris Cooper
+  Description: Friendly, kid-safe "page not found" screen.
   License: GNU AGPLv3
   -----------------------------------------------------------
-  This file is part of the Hack Heroes project, an 
-  open-source educational initiative to teach cybersecurity 
+  This file is part of the Hack Heroes project, an
+  open-source educational initiative to teach cybersecurity
   to young learners.
 -->
-<h1>404 Not Found</h1>
+<html data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>404 &middot; Lost in cyberspace &middot; Hack Heroes</title>
+
+  <link rel="stylesheet" href="assets/vendor/css/bulma.min.css">
+  <link rel="stylesheet" href="assets/css/main.css">
+
+  <style>
+    .lost-hero { overflow:hidden; }
+
+    /* Big glitchy 404 */
+    .glitch {
+      font-weight:900; line-height:1; letter-spacing:.04em;
+      font-size:clamp(5rem, 22vw, 12rem);
+      color:#48c78e; position:relative; display:inline-block;
+      text-shadow:0 0 18px rgba(72,199,142,.45);
+    }
+    .glitch::before, .glitch::after {
+      content:"404"; position:absolute; left:0; top:0; width:100%;
+      clip-path:inset(0 0 0 0);
+    }
+    .glitch::before { color:#e21b3c; transform:translate(3px,-2px); opacity:.7;
+      animation:glitch-a 2.4s infinite linear alternate; }
+    .glitch::after  { color:#1368ce; transform:translate(-3px,2px); opacity:.7;
+      animation:glitch-b 3.1s infinite linear alternate; }
+    @keyframes glitch-a {
+      0%{clip-path:inset(0 0 82% 0)} 25%{clip-path:inset(40% 0 38% 0)}
+      50%{clip-path:inset(8% 0 70% 0)} 75%{clip-path:inset(62% 0 12% 0)}
+      100%{clip-path:inset(28% 0 50% 0)}
+    }
+    @keyframes glitch-b {
+      0%{clip-path:inset(70% 0 8% 0)} 25%{clip-path:inset(18% 0 60% 0)}
+      50%{clip-path:inset(52% 0 22% 0)} 75%{clip-path:inset(4% 0 84% 0)}
+      100%{clip-path:inset(36% 0 40% 0)}
+    }
+
+    /* Floating hero mascot */
+    .lost-mascot { width:120px; animation:bob 3s ease-in-out infinite; }
+    @keyframes bob { 0%,100%{transform:translateY(0) rotate(-3deg)} 50%{transform:translateY(-14px) rotate(3deg)} }
+
+    /* Faux "terminal" hint */
+    .terminal {
+      font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
+      background:#11151c; border:1px solid rgba(255,255,255,.08);
+      border-radius:.75rem; padding:1rem 1.25rem; text-align:left;
+      max-width:30rem; margin:1.5rem auto 0; color:#9fe8c5; font-size:.9rem;
+      box-shadow:0 8px 0 rgba(0,0,0,.18);
+    }
+    .terminal .prompt { color:#48c78e; }
+    .cursor { display:inline-block; width:.6ch; background:#48c78e;
+      animation:blink 1s steps(1) infinite; }
+    @keyframes blink { 50%{opacity:0} }
+
+    .floaty { font-size:1.8rem; opacity:.4; position:absolute; animation:drift 9s linear infinite; }
+    @keyframes drift { from{transform:translateY(110vh)} to{transform:translateY(-20vh)} }
+  </style>
+</head>
+
+<body class="lost-hero">
+  <!-- floating background emojis -->
+  <span class="floaty" style="left:8%;  animation-delay:0s">🔐</span>
+  <span class="floaty" style="left:24%; animation-delay:2.5s">👾</span>
+  <span class="floaty" style="left:55%; animation-delay:1.2s">🛡️</span>
+  <span class="floaty" style="left:72%; animation-delay:4s">💾</span>
+  <span class="floaty" style="left:88%; animation-delay:3.1s">🐝</span>
+
+  <section class="hero is-fullheight">
+    <div class="hero-body">
+      <div class="container has-text-centered">
+
+        <img src="assets/images/hackheroes.png" class="lost-mascot" alt="Hack Heroes mascot">
+
+        <h1 class="glitch" aria-label="404">404</h1>
+
+        <h2 class="title is-3 mt-3">Whoa! This page went invisible 🥷</h2>
+        <p class="subtitle is-5">
+          You found a secret corner of cyberspace that doesn't exist
+          (or a sneaky agent moved it). Let's get you back to base.
+        </p>
+
+        <div class="terminal">
+          <div><span class="prompt">heroes@btc:~$</span> locate page</div>
+          <div>scanning the matrix...</div>
+          <div>🔎 0 results found</div>
+          <div><span class="prompt">heroes@btc:~$</span> <span class="cursor">&nbsp;</span></div>
+        </div>
+
+        <div class="buttons is-centered mt-5">
+          <a class="button is-success is-medium" href="index.html">
+            <span class="icon"><ion-icon name="home-outline"></ion-icon></span>
+            <span>Back to missions</span>
+          </a>
+          <a class="button is-info is-light is-medium" href="how-to-play.html">
+            <span class="icon"><ion-icon name="help-circle-outline"></ion-icon></span>
+            <span>How to play</span>
+          </a>
+          <a class="button is-link is-light is-medium" href="join.html">
+            <span class="icon"><ion-icon name="game-controller-outline"></ion-icon></span>
+            <span>Join a class</span>
+          </a>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <script type="module" src="assets/vendor/ionicons/ionicons.esm.js"></script>
+  <script nomodule src="assets/vendor/ionicons/ionicons.js"></script>
+</body>
+</html>

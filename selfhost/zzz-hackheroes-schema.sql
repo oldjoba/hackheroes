@@ -182,6 +182,110 @@ grant execute on function public.join_class(text, text, text) to authenticated, 
 
 
 -- =====================================================================
+-- 3b. WINNER PRIZE — server-guarded reveal
+-- The prize text must NEVER reach a student's browser until somebody has
+-- actually finished every assigned challenge. So nobody (not even the
+-- teacher's dashboard) selects classes.prize directly; instead they call
+-- this function, which returns the prize ONLY when a winner exists.
+-- =====================================================================
+
+create or replace function public.get_prize_if_won(c_id uuid)
+returns text
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+declare
+  v_prize    text;
+  v_assigned int;
+  v_has_winner boolean;
+begin
+  if not (public.owns_class(c_id) or public.is_student_of_class(c_id)) then
+    return null;
+  end if;
+
+  select prize into v_prize from public.classes where id = c_id;
+  if v_prize is null or btrim(v_prize) = '' then
+    return null;
+  end if;
+
+  select count(*) into v_assigned
+    from public.assignments where class_id = c_id;
+  if v_assigned = 0 then
+    return null;
+  end if;
+
+  select exists (
+    select 1
+      from public.students s
+     where s.class_id = c_id
+       and (
+         select count(*) from public.progress p
+          where p.student_id = s.id
+            and p.class_id   = c_id
+            and p.completed  = true
+       ) >= v_assigned
+  ) into v_has_winner;
+
+  if v_has_winner then
+    return v_prize;
+  end if;
+  return null;
+end;
+$$;
+
+grant execute on function public.get_prize_if_won(uuid) to authenticated, anon;
+
+
+-- Does this class have a prize at all? (boolean only — never the text.)
+create or replace function public.class_has_prize(c_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.classes c
+    where c.id = c_id
+      and (public.owns_class(c_id) or public.is_student_of_class(c_id))
+      and c.prize is not null and btrim(c.prize) <> ''
+  );
+$$;
+
+grant execute on function public.class_has_prize(uuid) to authenticated, anon;
+
+
+-- =====================================================================
+-- 3c. KICK A STUDENT — teacher removes a student from a class
+-- =====================================================================
+
+create or replace function public.kick_student(p_student_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_class uuid;
+begin
+  select class_id into v_class from public.students where id = p_student_id;
+  if v_class is null then
+    return;
+  end if;
+  if not public.owns_class(v_class) then
+    raise exception 'Only the class owner can remove students.';
+  end if;
+  delete from public.progress where student_id = p_student_id;
+  delete from public.students where id = p_student_id;
+end;
+$$;
+
+grant execute on function public.kick_student(uuid) to authenticated;
+
+
+-- =====================================================================
 -- 4. ROW LEVEL SECURITY
 -- =====================================================================
 
@@ -205,10 +309,19 @@ create policy class_owner_all on public.classes
   using (teacher_id = auth.uid())
   with check (teacher_id = auth.uid());
 
+-- Students get NO direct SELECT policy on public.classes, so they can never
+-- read the `prize` column. They read class name via classes_public, and the
+-- prize is revealed only through get_prize_if_won().
 drop policy if exists class_student_read on public.classes;
-create policy class_student_read on public.classes
-  for select
-  using (public.is_student_of_class(id));
+
+-- Definer view (no security_invoker): reads the base table but restricts rows
+-- to classes the caller belongs to / owns. The prize column is NOT exposed.
+drop view if exists public.classes_public;
+create view public.classes_public as
+  select id, name, join_code, created_at
+    from public.classes
+   where public.is_student_of_class(id) or public.owns_class(id);
+grant select on public.classes_public to authenticated, anon;
 
 -- ---- students --------------------------------------------------------
 -- Teacher can read students in their own classes.
