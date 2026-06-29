@@ -1,0 +1,380 @@
+<!--
+  Project: Hack Heroes
+  File: dashboard.html
+  Description: Live class leaderboard. Shows real-time standings for a class:
+               who has completed which assigned challenges, who finished
+               ALL of them first (winner badge + confetti), hints used, and
+               last activity. Updates live via Supabase Realtime.
+  License: GNU AGPLv3
+  -----------------------------------------------------------
+  Usage: dashboard.html?class=<classId>
+-->
+<html data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live Leaderboard &middot; Hack Heroes</title>
+
+  <style>[x-cloak] { display: none !important; }</style>
+
+  <link rel="stylesheet" href="assets/vendor/css/bulma.min.css">
+  <link rel="stylesheet" href="assets/css/main.css">
+
+  <style>
+    .rank-medal { font-size: 1.4rem; line-height: 1; }
+    .winner-row { box-shadow: inset 4px 0 0 0 #ffdd57; }
+    .pulse { animation: hhpulse 0.8s ease-in-out 2; }
+    @keyframes hhpulse {
+      0%   { background-color: rgba(72,199,142,0.0); }
+      50%  { background-color: rgba(72,199,142,0.25); }
+      100% { background-color: rgba(72,199,142,0.0); }
+    }
+    .live-dot {
+      display:inline-block; width:0.6rem; height:0.6rem; border-radius:50%;
+      background:#48c78e; margin-right:0.4rem;
+      animation: hhlive 1.4s ease-in-out infinite;
+    }
+    @keyframes hhlive { 0%,100%{opacity:1;} 50%{opacity:0.25;} }
+  </style>
+
+  <script defer src="assets/vendor/js/alpine.min.js"></script>
+</head>
+
+<body
+  x-data="dashboard()"
+  x-init="init()">
+
+  <section class="hero">
+    <div class="hero-body pb-4">
+      <nav class="level is-flex is-align-items-center py-2 px-2">
+        <div class="is-flex is-align-items-center" style="gap:0rem">
+          <img src="assets/images/hackheroes.png" class="logo" alt="Hack Heroes">
+        </div>
+        <div class="ml-3">
+          <h1 class="title is-3 mb-0">Live Leaderboard</h1>
+          <p class="subtitle is-6 mb-0">
+            <span class="live-dot" x-show="ready" x-cloak></span>
+            <span x-text="className || 'Loading…'"></span>
+          </p>
+        </div>
+        <div class="ml-auto buttons">
+          <a class="button is-link is-light" href="teacher.html">
+            <span class="icon"><ion-icon name="settings-outline"></ion-icon></span>
+            <span>Teacher area</span>
+          </a>
+        </div>
+      </nav>
+    </div>
+  </section>
+
+  <div class="container px-4">
+
+    <!-- Errors / not configured -->
+    <div class="notification is-warning" x-show="error" x-cloak x-text="error"></div>
+
+    <!-- Summary cards -->
+    <div class="grid is-col-min-12 mb-4" x-show="ready" x-cloak>
+      <div class="cell">
+        <div class="box has-text-centered">
+          <p class="heading">Students</p>
+          <p class="title is-3" x-text="standings.length"></p>
+        </div>
+      </div>
+      <div class="cell">
+        <div class="box has-text-centered">
+          <p class="heading">Assigned challenges</p>
+          <p class="title is-3" x-text="assignments.length"></p>
+        </div>
+      </div>
+      <div class="cell">
+        <div class="box has-text-centered">
+          <p class="heading">Finished everything</p>
+          <p class="title is-3 has-text-success" x-text="finishedCount"></p>
+        </div>
+      </div>
+      <div class="cell">
+        <div class="box has-text-centered">
+          <p class="heading">First to finish</p>
+          <p class="title is-5" :class="winner ? 'has-text-warning' : ''"
+             x-text="winner || '—'"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Winner banner -->
+    <div class="notification is-warning has-text-centered" x-show="winner" x-cloak>
+      🏆 <strong x-text="winner"></strong> was the first to complete all assigned challenges! 🎉
+    </div>
+
+    <!-- No assignments warning -->
+    <div class="notification is-info" x-show="ready && assignments.length === 0" x-cloak>
+      No challenges are assigned to this class yet.
+      Head to the <a href="teacher.html">teacher area</a> to assign some.
+    </div>
+
+    <!-- Leaderboard table -->
+    <div class="box" x-show="ready && standings.length > 0" x-cloak>
+      <table class="table is-fullwidth is-hoverable">
+        <thead>
+          <tr>
+            <th style="width:3rem">#</th>
+            <th>Agent</th>
+            <th style="min-width:12rem">Progress</th>
+            <th class="has-text-centered">Done</th>
+            <th class="has-text-centered">Hints</th>
+            <th>Last active</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="(row, i) in standings" :key="row.studentId">
+            <tr :class="(row.finishedAll ? 'winner-row ' : '') + (row._flash ? 'pulse' : '')">
+              <td>
+                <span class="rank-medal" x-show="i===0">🥇</span>
+                <span class="rank-medal" x-show="i===1">🥈</span>
+                <span class="rank-medal" x-show="i===2">🥉</span>
+                <span x-show="i>2" x-text="i+1"></span>
+              </td>
+              <td>
+                <strong x-text="row.nickname"></strong>
+                <span class="tag is-warning is-light ml-2" x-show="row.finishedAll">Done!</span>
+                <span class="tag is-warning ml-2" x-show="row.nickname === winner">1st 🏆</span>
+              </td>
+              <td>
+                <progress
+                  class="progress is-small"
+                  :class="row.finishedAll ? 'is-warning' : 'is-success'"
+                  :value="row.doneCount"
+                  :max="Math.max(assignments.length,1)"></progress>
+              </td>
+              <td class="has-text-centered">
+                <span x-text="row.doneCount"></span>/<span x-text="assignments.length"></span>
+              </td>
+              <td class="has-text-centered" x-text="row.hints"></td>
+              <td x-text="row.lastActivityText"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Empty / waiting state -->
+    <div class="box has-text-centered py-6" x-show="ready && standings.length === 0" x-cloak>
+      <p class="title is-5">Waiting for students to join…</p>
+      <p class="subtitle is-6">Share the class join code with your students to get started.</p>
+    </div>
+
+    <div class="has-text-centered my-5" x-show="!ready && !error">
+      <span class="loader" style="display:inline-block"></span>
+      <p class="mt-2">Connecting…</p>
+    </div>
+
+  </div>
+
+  <footer class="footer mt-5">
+    <div class="content has-text-centered">
+      <p><strong>Hack Heroes</strong> &middot; live class dashboard. Updates in real time.</p>
+    </div>
+  </footer>
+
+  <script type="module" src="assets/vendor/ionicons/ionicons.esm.js"></script>
+  <script nomodule src="assets/vendor/ionicons/ionicons.js"></script>
+  <script src="assets/vendor/js/confetti.browser.min.js"></script>
+  <script src="assets/vendor/js/supabase.min.js"></script>
+  <script src="assets/js/core/functions.js"></script>
+  <script src="assets/js/core/StorageHandler.js"></script>
+  <script src="assets/js/core/SupabaseClient.js"></script>
+  <script src="assets/js/core/ClassroomSync.js"></script>
+
+  <script>
+    function dashboard() {
+      return {
+        classId: new URLSearchParams(location.search).get('class') || '',
+        className: '',
+        assignments: [],          // [challengeId, ...]
+        students: {},             // studentId -> { studentId, nickname, done:Set, hints, lastActivity, finishedAll, _flash, _finishOrder }
+        ready: false,
+        error: '',
+        winner: '',               // nickname of first finisher
+        _finishSeq: 0,
+        channel: null,
+        _tick: 0,                 // bumped on a timer so relative times refresh
+
+        get standings() {
+          this._tick; // reactive dependency so times re-render on tick
+          const arr = Object.values(this.students).map((s) => ({
+            studentId: s.studentId,
+            nickname: s.nickname,
+            doneCount: s.done.size,
+            hints: s.hints,
+            finishedAll: s.finishedAll,
+            lastActivity: s.lastActivity,
+            lastActivityText: this.relTime(s.lastActivity),
+            _flash: s._flash,
+            _finishOrder: s._finishOrder
+          }));
+          arr.sort((a, b) => {
+            if (b.doneCount !== a.doneCount) return b.doneCount - a.doneCount; // more done first
+            if (a.hints !== b.hints) return a.hints - b.hints;                 // fewer hints first
+            // earlier last activity (got there sooner) ranks higher among equals
+            const ta = a.lastActivity ? Date.parse(a.lastActivity) : Infinity;
+            const tb = b.lastActivity ? Date.parse(b.lastActivity) : Infinity;
+            return ta - tb;
+          });
+          return arr;
+        },
+
+        get finishedCount() {
+          return Object.values(this.students).filter((s) => s.finishedAll).length;
+        },
+
+        async init() {
+          await window.xaSupabaseReady;
+          if (!window.xaSupabaseConfigured()) {
+            this.error = 'Classroom features are not configured. See config/supabase.json and supabase/schema.sql.';
+            return;
+          }
+          if (!this.classId) {
+            this.error = 'No class specified. Open this page as dashboard.html?class=<id>.';
+            return;
+          }
+
+          try {
+            const sb = window.xaSupabase;
+
+            // Class name
+            const cls = await sb.from('classes').select('name').eq('id', this.classId).single();
+            if (cls.error) throw cls.error;
+            this.className = cls.data.name;
+
+            // Assignments
+            const asg = await sb.from('assignments')
+              .select('challenge_id, sort_order')
+              .eq('class_id', this.classId)
+              .order('sort_order', { ascending: true });
+            if (asg.error) throw asg.error;
+            this.assignments = (asg.data || []).map((r) => r.challenge_id);
+
+            // Students
+            const stu = await sb.from('students')
+              .select('id, nickname')
+              .eq('class_id', this.classId);
+            if (stu.error) throw stu.error;
+            (stu.data || []).forEach((s) => this.ensureStudent(s.id, s.nickname));
+
+            // Existing progress
+            const prog = await sb.from('progress')
+              .select('*')
+              .eq('class_id', this.classId);
+            if (prog.error) throw prog.error;
+            (prog.data || []).forEach((p) => this.applyProgress(p, true));
+
+            this.ready = true;
+            this.subscribe();
+            // Refresh relative "last active" timestamps periodically.
+            setInterval(() => { this._tick++; }, 15000);
+          } catch (e) {
+            this.error = (e && e.message) ? e.message : 'Could not load the dashboard.';
+          }
+        },
+
+        ensureStudent(id, nickname) {
+          if (!this.students[id]) {
+            this.students[id] = {
+              studentId: id,
+              nickname: nickname || 'Agent',
+              done: new Set(),
+              hints: 0,
+              lastActivity: null,
+              finishedAll: false,
+              _flash: false,
+              _finishOrder: null
+            };
+          } else if (nickname) {
+            this.students[id].nickname = nickname;
+          }
+          return this.students[id];
+        },
+
+        applyProgress(p, silent) {
+          const s = this.ensureStudent(p.student_id, null);
+
+          // Track per-challenge completion in the done set.
+          if (p.completed) s.done.add(p.challenge_id);
+          else s.done.delete(p.challenge_id);
+
+          // hints_used in the row is the latest count for that challenge; we
+          // keep a per-student max-ish by recomputing across known rows is
+          // overkill for realtime — instead store latest per challenge.
+          s._hintsByChallenge = s._hintsByChallenge || {};
+          s._hintsByChallenge[p.challenge_id] = p.hints_used || 0;
+          s.hints = Object.values(s._hintsByChallenge).reduce((a, b) => a + b, 0);
+
+          s.lastActivity = p.updated_at || p.completed_at || s.lastActivity;
+
+          const wasFinished = s.finishedAll;
+          const finishedAll =
+            this.assignments.length > 0 &&
+            this.assignments.every((cid) => s.done.has(cid));
+          s.finishedAll = finishedAll;
+
+          if (finishedAll && !wasFinished) {
+            s._finishOrder = ++this._finishSeq;
+            if (!this.winner) this.winner = s.nickname;
+            if (!silent) this.celebrate(s);
+          }
+
+          if (!silent) this.flash(s);
+        },
+
+        flash(s) {
+          s._flash = true;
+          setTimeout(() => { s._flash = false; }, 1600);
+        },
+
+        celebrate() {
+          if (typeof confetti === 'function') {
+            const burst = (x) => confetti({
+              particleCount: 120,
+              spread: 70,
+              origin: { x, y: 0.6 }
+            });
+            burst(0.25); burst(0.5); burst(0.75);
+          }
+        },
+
+        subscribe() {
+          const sb = window.xaSupabase;
+          this.channel = sb.channel('class-' + this.classId)
+            .on('postgres_changes',
+              { event: '*', schema: 'public', table: 'progress', filter: 'class_id=eq.' + this.classId },
+              (payload) => {
+                const p = payload.new || payload.old;
+                if (p) this.applyProgress(p, false);
+              })
+            .on('postgres_changes',
+              { event: 'INSERT', schema: 'public', table: 'students', filter: 'class_id=eq.' + this.classId },
+              (payload) => {
+                const s = payload.new;
+                if (s) this.ensureStudent(s.id, s.nickname);
+              })
+            .subscribe();
+        },
+
+        relTime(iso) {
+          if (!iso) return '—';
+          const t = Date.parse(iso);
+          if (isNaN(t)) return '—';
+          const secs = Math.floor((Date.now() - t) / 1000);
+          if (secs < 5) return 'just now';
+          if (secs < 60) return secs + 's ago';
+          const mins = Math.floor(secs / 60);
+          if (mins < 60) return mins + 'm ago';
+          const hrs = Math.floor(mins / 60);
+          if (hrs < 24) return hrs + 'h ago';
+          return Math.floor(hrs / 24) + 'd ago';
+        }
+      };
+    }
+  </script>
+</body>
+</html>

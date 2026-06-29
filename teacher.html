@@ -1,0 +1,355 @@
+<!--
+  Project: Hack Heroes
+  File: teacher.html
+  Description: Teacher portal. Register / sign in with email + password,
+               create classes (with an auto-generated join code), assign
+               challenges to a class, and open the live leaderboard.
+  License: GNU AGPLv3
+  -----------------------------------------------------------
+  Part of the Hack Heroes classroom layer.
+-->
+<html data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Teacher Area &middot; Hack Heroes</title>
+
+  <style>[x-cloak] { display: none !important; }</style>
+
+  <link rel="stylesheet" href="assets/vendor/css/bulma.min.css">
+  <link rel="stylesheet" href="assets/css/main.css">
+
+  <script defer src="assets/vendor/js/alpine.min.js"></script>
+</head>
+
+<body x-data="teacher()" x-init="init()">
+
+  <section class="hero">
+    <div class="hero-body pb-4">
+      <nav class="level is-flex is-align-items-center py-2 px-2">
+        <div class="is-flex is-align-items-center" style="gap:0rem">
+          <img src="assets/images/owasp.png" class="logo" alt="OWASP">
+          <img src="assets/images/hackheroes.png" class="logo" alt="Hack Heroes">
+        </div>
+        <div class="ml-3">
+          <h1 class="title is-3 mb-0">Teacher Area</h1>
+          <p class="subtitle is-6 mb-0">Create classes, assign challenges, track progress.</p>
+        </div>
+        <div class="ml-auto buttons" x-show="teacher" x-cloak>
+          <span class="mr-3 has-text-grey" x-text="teacher?.email"></span>
+          <button class="button is-light" @click="signOut()">Sign out</button>
+        </div>
+      </nav>
+    </div>
+  </section>
+
+  <div class="container px-4">
+
+    <div class="notification is-warning" x-show="!configured" x-cloak>
+      <strong>Classroom features aren't set up yet.</strong>
+      Fill in <code>config/supabase.json</code> and run <code>supabase/schema.sql</code> in your
+      Supabase project (and enable Anonymous sign-ins).
+    </div>
+
+    <div class="notification is-danger is-light" x-show="error" x-cloak x-text="error"></div>
+    <div class="notification is-success is-light" x-show="notice" x-cloak x-text="notice"></div>
+
+    <!-- ============ AUTH (login / register) ============ -->
+    <div class="columns is-centered" x-show="configured && !teacher" x-cloak>
+      <div class="column is-5">
+        <div class="box">
+          <div class="tabs is-centered">
+            <ul>
+              <li :class="view==='login' ? 'is-active' : ''"><a @click="view='login';error=''">Sign in</a></li>
+              <li :class="view==='register' ? 'is-active' : ''"><a @click="view='register';error=''">Register</a></li>
+            </ul>
+          </div>
+
+          <div class="field" x-show="view==='register'">
+            <label class="label">Your name</label>
+            <div class="control">
+              <input class="input" type="text" x-model="name" placeholder="Ms Smith">
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="label">Email</label>
+            <div class="control has-icons-left">
+              <input class="input" type="email" x-model="email" placeholder="you@school.org"
+                     @keydown.enter="view==='login' ? signIn() : signUp()">
+              <span class="icon is-small is-left"><ion-icon name="mail-outline"></ion-icon></span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="label">Password</label>
+            <div class="control has-icons-left">
+              <input class="input" type="password" x-model="password" placeholder="••••••••"
+                     @keydown.enter="view==='login' ? signIn() : signUp()">
+              <span class="icon is-small is-left"><ion-icon name="lock-closed-outline"></ion-icon></span>
+            </div>
+          </div>
+
+          <button class="button is-link is-fullwidth mt-3"
+                  :class="loading ? 'is-loading' : ''"
+                  x-show="view==='login'" @click="signIn()">Sign in</button>
+          <button class="button is-link is-fullwidth mt-3"
+                  :class="loading ? 'is-loading' : ''"
+                  x-show="view==='register'" @click="signUp()">Create account</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ CLASSES ============ -->
+    <div x-show="configured && teacher" x-cloak>
+
+      <!-- Create class -->
+      <div class="box">
+        <div class="field has-addons">
+          <div class="control is-expanded">
+            <input class="input" type="text" x-model="newClassName"
+                   placeholder="New class name, e.g. Year 7 Cyber Club"
+                   @keydown.enter="createClass()">
+          </div>
+          <div class="control">
+            <button class="button is-link" :class="loading ? 'is-loading' : ''" @click="createClass()">
+              <span class="icon"><ion-icon name="add-outline"></ion-icon></span>
+              <span>Create class</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Class list -->
+      <div class="grid is-col-min-20">
+        <template x-for="c in classes" :key="c.id">
+          <div class="cell">
+            <div class="card">
+              <div class="card-content">
+                <h3 class="title is-5 mb-2" x-text="c.name"></h3>
+
+                <div class="field">
+                  <label class="label is-small mb-1">Join code</label>
+                  <div class="field has-addons">
+                    <div class="control is-expanded">
+                      <input class="input copyable uppercase" type="text" readonly :value="c.join_code">
+                    </div>
+                    <div class="control">
+                      <button class="button" @click="copy(c.join_code, 'Code copied!')" title="Copy code">
+                        <span class="icon"><ion-icon name="copy-outline"></ion-icon></span>
+                      </button>
+                    </div>
+                  </div>
+                  <p class="help">
+                    Students join at:
+                    <span class="copyable" x-text="joinUrl(c.join_code)"></span>
+                    <a @click.prevent="copy(joinUrl(c.join_code), 'Join link copied!')" class="ml-2 is-underlined">copy link</a>
+                  </p>
+                </div>
+              </div>
+              <footer class="card-footer">
+                <a class="card-footer-item" @click.prevent="openAssign(c)">
+                  <span class="icon"><ion-icon name="list-outline"></ion-icon></span>&nbsp;Assign
+                </a>
+                <a class="card-footer-item" :href="'dashboard.html?class='+c.id">
+                  <span class="icon"><ion-icon name="podium-outline"></ion-icon></span>&nbsp;Leaderboard
+                </a>
+              </footer>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div class="box has-text-centered py-6" x-show="classes.length===0">
+        <p class="title is-5">No classes yet</p>
+        <p class="subtitle is-6">Create your first class above to get a join code for your students.</p>
+      </div>
+    </div>
+
+    <!-- ============ ASSIGN MODAL ============ -->
+    <div class="modal" :class="assignClass ? 'is-active' : ''" x-cloak>
+      <div class="modal-background" @click="assignClass=null"></div>
+      <div class="modal-card">
+        <header class="modal-card-head">
+          <p class="modal-card-title">
+            Assign challenges &middot; <span x-text="assignClass?.name"></span>
+          </p>
+          <button class="delete" @click="assignClass=null"></button>
+        </header>
+        <section class="modal-card-body">
+          <p class="mb-3">Tick the challenges students in this class should complete.</p>
+          <template x-for="ch in allChallenges" :key="ch.id">
+            <label class="panel-block">
+              <input type="checkbox" :value="ch.id" x-model="selectedIds">
+              <span class="ml-2">
+                <strong x-text="ch.name"></strong>
+                <span class="has-text-grey is-size-7" x-show="ch.stage"> — <span x-text="ch.stage"></span></span>
+              </span>
+            </label>
+          </template>
+          <p class="has-text-grey" x-show="allChallenges.length===0">Loading challenges…</p>
+        </section>
+        <footer class="modal-card-foot">
+          <button class="button is-link" :class="loading ? 'is-loading' : ''" @click="saveAssign()">
+            Save assignments
+          </button>
+          <button class="button" @click="assignClass=null">Cancel</button>
+        </footer>
+      </div>
+    </div>
+
+  </div>
+
+  <footer class="footer mt-5">
+    <div class="content has-text-centered">
+      <p><strong>Hack Heroes</strong> teacher area &middot; <a href="index.html">back to challenges</a></p>
+    </div>
+  </footer>
+
+  <script type="module" src="assets/vendor/ionicons/ionicons.esm.js"></script>
+  <script nomodule src="assets/vendor/ionicons/ionicons.js"></script>
+  <script src="assets/vendor/js/supabase.min.js"></script>
+  <script src="assets/js/core/functions.js"></script>
+  <script src="assets/js/core/StorageHandler.js"></script>
+  <script src="assets/js/core/SupabaseClient.js"></script>
+  <script src="assets/js/core/ClassroomSync.js"></script>
+
+  <script>
+    function teacher() {
+      return {
+        configured: false,
+        view: 'login',
+        email: '', password: '', name: '',
+        teacher: null,
+        classes: [],
+        newClassName: '',
+        allChallenges: [],     // [{id, name, stage}]
+        assignClass: null,
+        selectedIds: [],
+        loading: false,
+        error: '',
+        notice: '',
+
+        async init() {
+          await window.xaSupabaseReady;
+          this.configured = window.xaSupabaseConfigured();
+          if (!this.configured) return;
+          this.teacher = await ClassroomSync.currentTeacher();
+          if (this.teacher) await this.loadClasses();
+        },
+
+        flash(msg) { this.notice = msg; setTimeout(() => { this.notice = ''; }, 2500); },
+        fail(e) { this.error = (e && e.message) ? e.message : String(e); this.loading = false; },
+
+        async signIn() {
+          this.error = ''; this.loading = true;
+          try {
+            await ClassroomSync.teacherSignIn(this.email.trim(), this.password);
+            this.teacher = await ClassroomSync.currentTeacher();
+            if (!this.teacher) throw new Error('Could not sign in.');
+            await this.loadClasses();
+            this.password = '';
+          } catch (e) { this.fail(e); return; }
+          this.loading = false;
+        },
+
+        async signUp() {
+          this.error = ''; this.loading = true;
+          try {
+            await ClassroomSync.teacherSignUp(this.email.trim(), this.password, this.name.trim());
+            // Some projects require email confirmation; try an immediate sign-in.
+            try {
+              await ClassroomSync.teacherSignIn(this.email.trim(), this.password);
+            } catch (_) { /* confirmation may be required */ }
+            this.teacher = await ClassroomSync.currentTeacher();
+            if (this.teacher) {
+              await this.loadClasses();
+              this.password = '';
+            } else {
+              this.flash('Account created. Please check your email to confirm, then sign in.');
+              this.view = 'login';
+            }
+          } catch (e) { this.fail(e); return; }
+          this.loading = false;
+        },
+
+        async signOut() {
+          await ClassroomSync.teacherSignOut();
+          this.teacher = null;
+          this.classes = [];
+          this.view = 'login';
+        },
+
+        async loadClasses() {
+          this.classes = await ClassroomSync.listClasses();
+        },
+
+        async createClass() {
+          const name = this.newClassName.trim();
+          if (!name) { this.error = 'Please name the class.'; return; }
+          this.error = ''; this.loading = true;
+          try {
+            await ClassroomSync.createClass(name);
+            this.newClassName = '';
+            await this.loadClasses();
+            this.flash('Class created!');
+          } catch (e) { this.fail(e); return; }
+          this.loading = false;
+        },
+
+        joinUrl(code) {
+          return location.origin + location.pathname.replace(/teacher\.html$/, 'join.html') + '?code=' + code;
+        },
+
+        async copy(text, msg) {
+          try {
+            await navigator.clipboard.writeText(text);
+            this.flash(msg || 'Copied!');
+          } catch (e) {
+            this.error = 'Copy failed — please copy manually.';
+          }
+        },
+
+        async loadChallenges() {
+          if (this.allChallenges.length) return;
+          try {
+            const index = await xaLoadJSON('config/challenges.json');
+            const ids = index.challenges || [];
+            const list = [];
+            for (const id of ids) {
+              try {
+                const c = await xaLoadJSON(`challenges/${id}/${id}.json`);
+                list.push({ id: id, name: c.name || id, stage: c.stage || '' });
+              } catch (_) {
+                list.push({ id: id, name: id, stage: '' });
+              }
+            }
+            this.allChallenges = list;
+          } catch (e) {
+            this.error = 'Could not load the challenge list.';
+          }
+        },
+
+        async openAssign(c) {
+          this.error = '';
+          this.assignClass = c;
+          this.selectedIds = [];
+          await this.loadChallenges();
+          this.selectedIds = await ClassroomSync.getAssignments(c.id);
+        },
+
+        async saveAssign() {
+          if (!this.assignClass) return;
+          this.loading = true; this.error = '';
+          try {
+            await ClassroomSync.setAssignments(this.assignClass.id, this.selectedIds);
+            this.flash('Assignments saved!');
+            this.assignClass = null;
+          } catch (e) { this.fail(e); return; }
+          this.loading = false;
+        }
+      };
+    }
+  </script>
+</body>
+</html>

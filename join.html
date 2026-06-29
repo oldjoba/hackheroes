@@ -1,0 +1,153 @@
+<!--
+  Project: Hack Heroes
+  File: join.html
+  Description: Student join page. Enter a class code + nickname to join a
+               class and start tracked play. No email or password needed.
+  License: GNU AGPLv3
+  -----------------------------------------------------------
+  Part of the Hack Heroes classroom layer.
+-->
+<html data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Join a Class &middot; Hack Heroes</title>
+
+  <style>[x-cloak] { display: none !important; }</style>
+
+  <link rel="stylesheet" href="assets/vendor/css/bulma.min.css">
+  <link rel="stylesheet" href="assets/css/main.css">
+
+  <script defer src="assets/vendor/js/alpine.min.js"></script>
+</head>
+
+<body
+  x-data="{
+    code: (new URLSearchParams(location.search).get('code') || '').toUpperCase(),
+    nickname: '',
+    loading: false,
+    error: '',
+    configured: false,
+    async init() {
+      await window.xaSupabaseReady;
+      this.configured = window.xaSupabaseConfigured();
+      // If already in a class, offer to continue.
+      const s = ClassroomSync.getSession();
+      if (s) { this.existing = s; }
+    },
+    existing: null,
+    async submit() {
+      this.error = '';
+      if (!this.code.trim()) { this.error = 'Please enter your class code.'; return; }
+      if (!this.nickname.trim()) { this.error = 'Please choose a nickname.'; return; }
+      this.loading = true;
+      try {
+        await ClassroomSync.ensureAnonAuth();
+        await ClassroomSync.joinClass(this.code.trim(), this.nickname.trim());
+        location.href = 'index.html';
+      } catch (e) {
+        this.error = (e && e.message) ? e.message : 'Could not join. Check the code and try again.';
+        this.loading = false;
+      }
+    }
+  }"
+  x-init="init()">
+
+  <section class="hero is-fullheight">
+    <div class="hero-body">
+      <div class="container">
+        <div class="columns is-centered">
+          <div class="column is-5">
+
+            <div class="has-text-centered mb-5">
+              <img src="assets/images/hackheroes.png" class="logo" alt="Hack Heroes">
+              <h1 class="title is-3 mt-3 mb-1">Join your class</h1>
+              <p class="subtitle is-6">Enter your class code and pick a nickname to start.</p>
+            </div>
+
+            <!-- Not configured warning -->
+            <div class="notification is-warning" x-show="!configured" x-cloak>
+              <strong>Classroom features aren't set up yet.</strong>
+              Ask your teacher, or see <code>config/supabase.json</code> and
+              <code>supabase/schema.sql</code> to configure Supabase.
+            </div>
+
+            <!-- Already in a class -->
+            <div class="notification is-info" x-show="existing" x-cloak>
+              You're already playing as <strong x-text="existing?.nickname"></strong>
+              in <strong x-text="existing?.className"></strong>.
+              <div class="buttons mt-3">
+                <a class="button is-link" href="index.html">Continue</a>
+                <button class="button is-light" @click="existing=null">Join a different class</button>
+              </div>
+            </div>
+
+            <div class="box" x-show="configured && !existing" x-cloak>
+              <div class="field">
+                <label class="label">Class code</label>
+                <div class="control has-icons-left">
+                  <input
+                    class="input uppercase"
+                    type="text"
+                    placeholder="e.g. BRAVE-FOX-42"
+                    x-model="code"
+                    @input="code = $event.target.value.toUpperCase()"
+                    @keydown.enter="submit()"
+                    :disabled="loading">
+                  <span class="icon is-small is-left">
+                    <ion-icon name="key-outline"></ion-icon>
+                  </span>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="label">Nickname</label>
+                <div class="control has-icons-left">
+                  <input
+                    class="input"
+                    type="text"
+                    maxlength="24"
+                    placeholder="Pick a fun name"
+                    x-model="nickname"
+                    @keydown.enter="submit()"
+                    :disabled="loading">
+                  <span class="icon is-small is-left">
+                    <ion-icon name="person-outline"></ion-icon>
+                  </span>
+                </div>
+                <p class="help">No email or password needed. Don't use your full real name.</p>
+              </div>
+
+              <div class="notification is-danger is-light py-2" x-show="error" x-cloak x-text="error"></div>
+
+              <div class="field mt-4">
+                <button
+                  class="button is-link is-fullwidth"
+                  :class="loading ? 'is-loading' : ''"
+                  @click="submit()"
+                  :disabled="loading">
+                  <span class="icon"><ion-icon name="rocket-outline"></ion-icon></span>
+                  <span>Let's go!</span>
+                </button>
+              </div>
+            </div>
+
+            <p class="has-text-centered">
+              <a href="index.html" class="is-underlined">Just exploring? Play without a class</a>
+            </p>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script type="module" src="assets/vendor/ionicons/ionicons.esm.js"></script>
+  <script nomodule src="assets/vendor/ionicons/ionicons.js"></script>
+  <script src="assets/vendor/js/supabase.min.js"></script>
+  <script src="assets/js/core/functions.js"></script>
+  <script src="assets/js/core/StorageHandler.js"></script>
+  <script src="assets/js/core/SupabaseClient.js"></script>
+  <script src="assets/js/core/ClassroomSync.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "_meta": {
+    "project": "Hack Heroes",
+    "file": "supabase.json",
+    "description": "Public Supabase connection details. The anon key is PUBLIC by design; all access control is enforced by Row Level Security. Safe to commit.",
+    "selfhost": "Default values point at the local self-hosted stack (docker compose up), reached through the nginx gateway on the same origin. To use cloud Supabase instead, set url to your project URL and anonKey to your project's anon public key."
+  },
+  "url": "http://localhost:8080",
+  "anonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwiaWF0IjoxNzA0MDY3MjAwLCJleHAiOjIwMTk2NjcyMDAsInJvbGUiOiJhbm9uIn0.27yAQryhuU2kTej08soR0beq_Kyad3reNxqXvwYQZVE"
+}

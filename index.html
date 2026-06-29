@@ -1,0 +1,235 @@
+<!--
+  Project: Hack Heroes
+  File: index.html
+  Description: Project homepage and challenge list
+  Author: Chris Cooper
+  License: GNU AGPLv3
+  -----------------------------------------------------------
+  This file is part of the Hack Heroes project, an 
+  open-source educational initiative to teach cybersecurity 
+  to young learners.
+-->
+<html data-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hack Heroes</title>
+
+    <!-- Alpine cloak - hides elements until Alpine has loaded -->
+    <style>[x-cloak] { display: none !important; }</style>
+
+    <!-- Stylesheets - Bulma + customisations -->
+    <link rel="stylesheet" href="assets/vendor/css/bulma.min.css">
+    <link rel="stylesheet" href="assets/css/main.css">
+
+    <!-- Alpine.js -->
+    <script defer src="assets/vendor/js/alpine.min.js"></script>
+</head>
+<!--
+  Body
+  ====
+  
+  Properties (x-data)
+  ------------------------------
+
+  challenges (Object)
+  - Description: To contain a list of all challenges and their properties.
+
+  stageMap (Onject)
+  - Description: Object mapping stage IDs to names for display
+
+  x-init
+  ------
+  Loads a list of challenges, and then gets details for each one.
+-->
+<body
+  x-data="{
+    challenges:{},
+    classSession:null,
+    stageMap:{
+      'academy':'Agent Academy'
+    }
+  }"
+  x-init="
+    // Detect an active class session (set when a student joins via join.html)
+    classSession = (window.ClassroomSync) ? ClassroomSync.getSession() : null;
+    // Gets a list of all challenges and stages
+    challengesObj = await xaLoadJSON('config/challenges.json');
+    // In class mode, narrow the list to the challenges assigned to this class.
+    var challengeIds = challengesObj.challenges;
+    if (classSession) {
+      try {
+        var assignedIds = await ClassroomSync.getAssignments(classSession.classId);
+        if (assignedIds && assignedIds.length) {
+          challengeIds = challengeIds.filter(id => assignedIds.includes(id));
+        }
+      } catch (e) { console.warn('Could not load assignments:', e); }
+    }
+    // Creates a key for each stage so we can sort challenges by stage
+    for (var stage of challengesObj.stages) {
+      challenges[stage] = [];
+      console.log(challenges);
+    }
+    // Loop through each challenge ID
+    for (var challengeId of challengeIds) {
+      // Get challenge data from JSON 
+      challengeData = await xaLoadJSON('challenges/'+challengeId+'/'+challengeId+'.json');
+      // Prepare to get data from localStorage
+      challengeStore = new StorageHandler(challengeId);
+      // Get state info for the current challenge
+      answer = challengeStore.getAnswer();
+      hintsRead = challengeStore.getHintsRead();
+      // Add state info to challenge object
+      challengeData.numHintsRead = hintsRead.length; // Number of hints read
+      challengeData.numHints = Object.keys(challengeData.hints).length; // Total hints available
+      // Check if the answer is correct
+      xaCompareAnswer(challengeData,answer).then((result) => {
+        // Add answer status to challenge object
+        challengeData.answerState = result ? 'Complete' : 'Incomplete';
+        // Add challenge data to the overall collection 
+        challenges[challengeData.stage].push(challengeData);
+      });
+    }">   
+
+    <section class="hero">
+      <div class="hero-body pb-0">
+        <nav class="level is-flex is-align-items-center py-4 px-2">
+          <div class="is-flex is-align-items-center" style="gap:0rem">
+            <img src="assets/images/owasp.png"  class="logo">
+            <img src="assets/images/hackheroes.png" class="logo">
+          </div>
+
+          <div class="ml-3">
+            <h1 class="title is-3 mb-0">BTC Hack Heroes</h1>
+            <p class="subtitle is-6 mb-0">Master cyber skills, hack like a hero!</p>
+          </div>
+
+          <div class="ml-auto buttons">
+            <a class="button is-link is-light" href="teacher.html">
+              <span class="icon"><ion-icon name="school-outline"></ion-icon></span>
+              <span>Teacher area</span>
+            </a>
+            <a class="button is-link" href="#what">What is this thing?</a>
+          </div>
+        </nav>
+      </div>
+    </section>
+    
+    <section class="section pt-3 pb-0" x-show="classSession" x-cloak>
+      <div class="notification is-info has-text-centered">
+        🎒 Playing as <strong x-text="classSession?.nickname"></strong>
+        in <strong x-text="classSession?.className"></strong>.
+        &nbsp;<a class="is-underlined" @click.prevent="ClassroomSync.clearSession(); location.reload();">Leave class</a>
+      </div>
+    </section>
+
+    <div class="container">
+        <template x-for="stage,key in challenges">
+        
+        <section class="section">
+        <h1 class="title" x-text="stageMap[key]"></h1>
+        <div class="grid is-col-min-15">
+          <template x-for="challenge in stage">
+            <div class="cell">
+              <div class="card">
+                <div class="card-image pt-4 pl-4 pr-4">
+                  <figure class="image is-128x128 mx-auto">
+                    <img
+                      :src="'challenges/'+challenge.id+'/icon.png'"
+                    />
+                  </figure>
+                </div>
+                <div class="card-content">
+                  <div class="content mb-0">
+                    <h5 x-text="challenge.name" class="title is-5 mb-1"></h5>
+                  </div>
+                  <div class="content mt-0 two-line-truncate" x-text="challenge.objective">
+                  </div>
+                </div>
+                <footer class="card-footer">
+                  <div class="card-footer-item" :class="challenge.answerState==='Complete' ? 'has-text-success' : ''">
+                    <ion-icon name="close" x-show="challenge.answerState==='Incomplete'"></ion-icon> 
+                    <ion-icon name="checkmark" x-show="challenge.answerState==='Complete'"></ion-icon> 
+                    &nbsp;<span x-text="challenge.answerState"></span>
+                  </div>
+                  <div class="card-footer-item"><div class="block has-text-centered"><b x-text="challenge.numHintsRead">0</b>/<span x-text="challenge.numHints"></span><br>hints used</div></div>
+                  <a :href="'challenge.html?id='+challenge.id" class="card-footer-item"><ion-icon name="open-outline"></ion-icon> &nbsp;Open</a>
+                </footer>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      </template>
+      <section class="section" id="what"> 
+        <h1 class="title">What is this thing?</h1>
+        <p class="block">Hack Heroes 🦸 is an open source project created to inspire young people to explore careers in 🛡️ cybersecurity. It covers a variety of cybersecurity topics through a series of in-browser 👾 challenges aimed at ages 8-14, but good fun for all.</p>
+        <p class="block">This project was started by Chris Cooper, a cybersecurity professional and 🥼 STEM ambassador based in the 🇬🇧 UK.</p>
+
+      </section>
+      <section class="section" x-data="{showDeleteDataPrompt:false}">
+        <h1 class="title">What about my data?</h1>
+        <p class="block">Hack Heroes stores anonymous data about the status of your challenges in your browser. You can play this game without providing any personal information, and we do not store any data about you or your gameplay on our servers.</p>
+        <p class="block">Currently it is not possible to save your game data or transfer it to another browser or device.</p>
+        <p class="block">
+          <button class="button is-danger is-small" 
+            @click="showDeleteDataPrompt=true"
+            :class="showDeleteDataPrompt ? 'is-loading' : ''"
+            >
+            Clear all mission data
+          </button>
+        </p>
+        <div class="message is-danger" x-show="showDeleteDataPrompt">
+          <div class="message-body">
+            This action will erase all mission progress and hints read on this device / in this browser. The challenges will be reset as if you are a brand new user. Are you sure you want to clear all mission data?
+            <div class="buttons has-addons"></div>
+              <button class="button is-danger" @click="
+                this.store = new StorageHandler();
+                // Get initial state
+                this.store.clearAllData();
+                location.reload();
+              ">
+                Yes
+              </button>
+              <button class="button" @click="showDeleteDataPrompt=false">No</button>
+            </div>
+          </div>
+        </div>
+      </section>
+      
+    </div>
+
+    <footer class="footer">
+      <div class="content has-text-centered">
+        <p>
+          <strong>Hack Heroes</strong> is an <a href="https://owasp.org/www-project-hack-heroes/">OWASP™ Project</a> 🐝
+          source code licensed under 
+          <a href="LICENSE.txt">GNU AGPLv3</a>.
+        </p>
+      </div>
+      <div class="content has-text-centered">
+        <div class="buttons has-addons is-centered">
+            <a class="button is-dark" href="https://github.com/itscooper/hackheroes">
+              <span class="icon is-small">
+                <ion-icon name="logo-github"></ion-icon>
+              </span>
+              <span>GitHub</span>
+            </a>
+            <button class="button is-static">
+              <span>for code, issues, and contributions.</span>
+            </button>
+        </div>
+      </div>
+    </footer>
+
+  <script type="module" src="assets/vendor/ionicons/ionicons.esm.js"></script>
+  <script nomodule src="assets/vendor/ionicons/ionicons.js"></script>
+  <script src="assets/js/core/StorageHandler.js"></script>
+  <script src="assets/js/core/functions.js"></script>
+  <!-- Classroom layer (optional; inert unless Supabase is configured and a class session is active) -->
+  <script src="assets/vendor/js/supabase.min.js"></script>
+  <script src="assets/js/core/SupabaseClient.js"></script>
+  <script src="assets/js/core/ClassroomSync.js"></script>
+</body>
+</html>

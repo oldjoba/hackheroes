@@ -1,0 +1,14 @@
+# Keep the site image small. NOTE: nginx.conf is intentionally NOT ignored —
+# the Dockerfile copies it.
+.git
+.gitignore
+.DS_Store
+**/.DS_Store
+
+# Server-side SQL / self-host stack files (not web content).
+supabase/
+selfhost/
+
+# Stack config + compose (not part of the served site).
+.env
+docker-compose.yml

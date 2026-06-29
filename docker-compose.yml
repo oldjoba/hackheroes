@@ -1,0 +1,192 @@
+# =====================================================================
+# Hack Heroes — full self-hosted stack (everything in containers).
+#
+#   docker compose up --build      # start the whole stack
+#   open http://localhost:8080     # the site + classroom features
+#   docker compose down            # stop (keeps data volume)
+#   docker compose down -v         # stop + wipe the database
+#
+# Services:
+#   db        Postgres (Supabase build: roles/auth/realtime preinstalled)
+#   auth      GoTrue   — email+password (teachers) + anonymous (students)
+#   rest      PostgREST — the /rest/v1 data API
+#   realtime  Realtime  — websocket changefeed for the live leaderboard
+#   site      nginx     — serves the static site AND reverse-proxies the
+#                         Supabase services so the browser uses one origin
+#
+# All config lives in .env (committed local-dev values).
+# =====================================================================
+
+name: hackheroes
+
+services:
+
+  db:
+    image: supabase/postgres:15.1.1.78
+    container_name: hh-db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      # Used by GoTrue/Realtime/PostgREST connection strings below.
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXP: ${JWT_EXPIRY}
+    volumes:
+      - hh-db-data:/var/lib/postgresql/data
+      # Our classroom schema auto-applies AFTER Supabase's own init-scripts +
+      # migrate.sh (filename sorts after them). Service-role passwords are
+      # handled separately by the db-setup service (must run as supabase_admin).
+      - ./selfhost/zzz-hackheroes-schema.sql:/docker-entrypoint-initdb.d/zzz-hackheroes-schema.sql:ro
+    # Not published to the host — only the stack talks to Postgres.
+    expose:
+      - "5432"
+
+  # One-shot: set passwords for the Supabase service roles (as supabase_admin,
+  # the only role allowed to modify these reserved roles). Runs after the DB is
+  # healthy and before auth/rest/realtime connect. Idempotent.
+  db-setup:
+    image: supabase/postgres:15.1.1.78
+    container_name: hh-db-setup
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["sh", "/setup-roles.sh"]
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      DB_HOST: db
+    volumes:
+      - ./selfhost/setup-roles.sh:/setup-roles.sh:ro
+
+  auth:
+    image: supabase/gotrue:v2.151.0
+    container_name: hh-auth
+    depends_on:
+      db:
+        condition: service_healthy
+      db-setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL}
+
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?search_path=auth&sslmode=disable
+
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_URI_ALLOW_LIST: "*"
+      GOTRUE_DISABLE_SIGNUP: ${GOTRUE_DISABLE_SIGNUP}
+
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_JWT_EXP: ${JWT_EXPIRY}
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+
+      # Students: anonymous sign-in (no PII).
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: ${GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED}
+
+      # Teachers: email+password. Autoconfirm so it works without SMTP locally.
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_MAILER_AUTOCONFIRM: ${GOTRUE_MAILER_AUTOCONFIRM}
+      GOTRUE_SMTP_ADMIN_EMAIL: ${GOTRUE_SMTP_ADMIN_EMAIL}
+      GOTRUE_SMTP_SENDER_NAME: ${GOTRUE_SMTP_SENDER_NAME}
+    expose:
+      - "9999"
+
+  rest:
+    image: postgrest/postgrest:v12.2.0
+    container_name: hh-rest
+    depends_on:
+      db:
+        condition: service_healthy
+      db-setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY}
+    expose:
+      - "3000"
+
+  realtime:
+    image: supabase/realtime:v2.30.23
+    container_name: hh-realtime
+    depends_on:
+      db:
+        condition: service_healthy
+      db-setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: supabase_admin
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB}
+      DB_AFTER_CONNECT_QUERY: "SET search_path TO realtime"
+      DB_ENC_KEY: supabaserealtime
+      API_JWT_SECRET: ${JWT_SECRET}
+      SECRET_KEY_BASE: hackheroes-dev-realtime-secret-key-base-please-change-0000000001
+      ERL_AFLAGS: -proto_dist inet_tcp
+      DNS_NODES: "''"
+      RLIMIT_NOFILE: "10000"
+      APP_NAME: realtime
+      SEED_SELF_HOST: "true"
+      RUN_JANITOR: "true"
+    expose:
+      - "4000"
+
+  # One-shot: register the "localhost" Realtime tenant so the live
+  # leaderboard websocket works (self-hosted Realtime is multi-tenant).
+  # Idempotent; uses the curl-equipped postgres image as a small base.
+  realtime-setup:
+    image: alpine:3.20
+    container_name: hh-realtime-setup
+    depends_on:
+      - realtime
+    restart: "no"
+    entrypoint: ["sh", "-c", "apk add --no-cache curl >/dev/null && sh /setup-realtime-tenant.sh"]
+    environment:
+      REALTIME_URL: http://realtime:4000
+      TENANT_EXTERNAL_ID: ${TENANT_EXTERNAL_ID}
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_JWT: ${SERVICE_ROLE_KEY}
+      DB_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./selfhost/setup-realtime-tenant.sh:/setup-realtime-tenant.sh:ro
+
+  site:
+    build: .
+    image: hackheroes-site
+    container_name: hh-site
+    depends_on:
+      - auth
+      - rest
+      - realtime
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # Live-override the public runtime config without rebuilding the image.
+      - ./config/supabase.json:/usr/share/nginx/html/config/supabase.json:ro
+
+volumes:
+  hh-db-data:
