@@ -97,6 +97,18 @@
                   :class="loading ? 'is-loading' : ''"
                   x-show="view==='register'" @click="signUp()">Create account</button>
         </div>
+
+        <!-- Student entry: join a class with a code (no email/password). -->
+        <div class="box has-text-centered">
+          <p class="heading mb-2">Are you a student?</p>
+          <p class="is-size-6 mb-3 has-text-grey">
+            Got a class code from your teacher? Jump straight in.
+          </p>
+          <a class="button is-success is-fullwidth" href="join.html">
+            <span class="icon"><ion-icon name="game-controller-outline"></ion-icon></span>
+            <span>Student login with a class code</span>
+          </a>
+        </div>
       </div>
     </div>
 
