@@ -22,6 +22,24 @@
     <link rel="stylesheet" href="assets/vendor/css/bulma.min.css">
     <link rel="stylesheet" href="assets/css/main.css">
 
+    <!-- Celebration styles for the 'all class challenges complete' screen -->
+    <style>
+      .finish-party {
+        background: linear-gradient(135deg,#26890c,#1368ce);
+        border-radius: 1rem;
+        animation: finishPop .6s cubic-bezier(.17,.89,.32,1.28);
+      }
+      .finish-emoji { font-size: 2.6rem; line-height: 1; animation: finishBounce 1.4s ease-in-out infinite; }
+      @keyframes finishPop {
+        0%   { transform: scale(.6); opacity: 0; }
+        100% { transform: scale(1);  opacity: 1; }
+      }
+      @keyframes finishBounce {
+        0%,100% { transform: translateY(0)   rotate(-2deg); }
+        50%     { transform: translateY(-10px) rotate(2deg); }
+      }
+    </style>
+
     <!-- Alpine.js -->
     <script defer src="assets/vendor/js/alpine.min.js"></script>
 </head>
@@ -139,10 +157,38 @@ x-data="{
   // Class sequence flow (one-at-a-time). Populated when a challenge is
   // completed while the student is in a class.
   flow:{ inClass:false, total:0, position:0, doneCount:0, nextId:null, allDone:false },
+  finishedCelebrated:false, // so we only throw the party once
+  // A fun, rotating motivational line for the 'all challenges done' screen.
+  get randomFinishMsg() {
+    const msgs = [
+      'You finished EVERY mission! Total legend. 🦸',
+      'All challenges crushed — you are officially a Cyber Hero! 🛡️',
+      'Boom! The whole class quest is complete. The Chaos Crew never stood a chance. 😎',
+      'You did it! Every single mission — done and dusted. 🌟',
+      'Mission complete, Agent. The city is safe thanks to you! 🏆',
+      'Unstoppable! You cleared the entire course. 🚀',
+      'High five! ✋ You solved them all like a true pro hacker.',
+      'Legendary run — 100% complete! 🥇'
+    ];
+    return msgs[Math.floor(Math.random() * msgs.length)];
+  },
+  // Throw confetti from a couple of points. Safe no-op if confetti missing.
+  celebrateFinish() {
+    if (typeof confetti !== 'function') return;
+    const fire = (x, y) => confetti({ particleCount: 140, spread: 80, startVelocity: 45, origin: { x, y } });
+    fire(0.2, 0.5); fire(0.5, 0.45); fire(0.8, 0.5);
+    setTimeout(() => { fire(0.3, 0.6); fire(0.7, 0.6); }, 350);
+    setTimeout(() => { fire(0.5, 0.4); }, 750);
+  },
   async refreshFlow() {
     if (!(window.ClassroomSync && ClassroomSync.isInClass())) return;
     try { this.flow = await ClassroomSync.getClassFlow(this.challenge.id); }
     catch (e) { /* non-fatal */ }
+    // First time we discover the whole class quest is finished: party time. 🎉
+    if (this.flow && this.flow.allDone && !this.finishedCelebrated) {
+      this.finishedCelebrated = true;
+      this.celebrateFinish();
+    }
   },
   get urlAllowList() {
     dir = this.challenge.id;
@@ -324,8 +370,9 @@ x-init="
         <div class="content" x-html="success">
         </div>
 
-        <!-- Class sequence: progress + next challenge -->
-        <template x-if="flow.inClass">
+        <!-- Class sequence: progress bar (hidden once everything is done — we
+             show the big celebration instead) -->
+        <template x-if="flow.inClass && !flow.allDone">
           <div class="mb-4">
             <p class="heading mb-1">
               Your class progress —
@@ -336,9 +383,21 @@ x-init="
           </div>
         </template>
 
+        <!-- 🎉 ALL CHALLENGES COMPLETE — big celebration -->
+        <template x-if="flow.inClass && flow.allDone">
+          <div class="notification is-success has-text-centered finish-party mb-4">
+            <p class="finish-emoji">🎉🏆🎉</p>
+            <p class="title is-4 has-text-white mb-2">Class Quest Complete!</p>
+            <p class="subtitle is-6 has-text-white" x-text="randomFinishMsg"></p>
+            <p class="has-text-white">
+              You finished all <strong x-text="flow.total"></strong> challenges. Amazing work, Agent!
+            </p>
+          </div>
+        </template>
+
         <div class="buttons is-centered">
             <!-- Class mode: jump straight to the next unfinished challenge -->
-            <a class="button is-link is-medium" x-show="flow.inClass && flow.nextId" x-cloak
+            <a class="button is-link is-medium" x-show="flow.inClass && flow.nextId && !flow.allDone" x-cloak
                :href="'challenge.html?id='+flow.nextId">
               <span>Next challenge</span>
               <span class="icon"><ion-icon name="arrow-forward"></ion-icon></span>
@@ -347,14 +406,19 @@ x-init="
             <a class="button is-warning is-medium" x-show="flow.inClass && flow.allDone" x-cloak
                href="index.html">
               <span class="icon"><ion-icon name="trophy-outline"></ion-icon></span>
-              <span>🎉 All done! See the leaderboard area</span>
+              <span>See the leaderboard 🏅</span>
             </a>
+            <!-- Class mode finished: throw more confetti for fun -->
+            <button class="button is-success is-light is-medium" x-show="flow.inClass && flow.allDone" x-cloak
+                    @click="celebrateFinish()">
+              <span>🎊 Celebrate again!</span>
+            </button>
             <!-- Default (not in a class, or fallback) -->
             <a class="button is-primary" x-show="!flow.inClass" x-cloak href="index.html">
               <span class="icon"><ion-icon name="arrow-back"></ion-icon></span>
               <span>Find Your Next Mission!</span>
             </a>
-            <button class="button" @click="successOpen=false">
+            <button class="button" @click="successOpen=false" x-show="!flow.allDone">
               <span class="icon"><ion-icon name="close"></ion-icon></span>
               <span>Close</span>
             </button>
@@ -1225,6 +1289,8 @@ x-init="
   </section>
   <script type="module" src="assets/vendor/ionicons/ionicons.esm.js"></script>
   <script nomodule src="assets/vendor/ionicons/ionicons.js"></script>
+  <!-- Confetti for the 'all challenges complete' celebration -->
+  <script src="assets/vendor/js/confetti.browser.min.js"></script>
   <script src="assets/vendor/js/marked.min.js"></script>
   <script src="assets/vendor/ace/ace.js"></script>
   <script src="assets/js/core/grow.js"></script>
