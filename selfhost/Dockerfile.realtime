@@ -1,0 +1,18 @@
+# Self-registering Hack Heroes Realtime image (App-service deploy).
+# Wraps the official Supabase Realtime image so it registers its tenant(s) on
+# boot, removing the need for a separate realtime-setup container. This lets
+# the whole stack run as plain single-container Easypanel "App" services.
+FROM supabase/realtime:v2.30.23
+
+# curl for the registration call (image is Debian-based).
+USER root
+RUN (command -v curl >/dev/null 2>&1) || \
+    (apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*)
+
+COPY register-tenant.sh /usr/local/bin/register-tenant.sh
+COPY realtime-entrypoint.sh /usr/local/bin/realtime-entrypoint.sh
+RUN chmod +x /usr/local/bin/register-tenant.sh /usr/local/bin/realtime-entrypoint.sh
+
+# Our wrapper backgrounds tenant registration, then execs the original startup.
+ENTRYPOINT ["/usr/local/bin/realtime-entrypoint.sh"]
+CMD ["/app/bin/server"]
