@@ -208,6 +208,12 @@ services:
   site:
     image: ghcr.io/oldjoba/hackheroes-site:latest
     restart: unless-stopped
+    # The image bakes a wget-based HEALTHCHECK. On Easypanel a transiently
+    # "unhealthy" container is not routed by Traefik -> 502. nginx logs show it
+    # serves fine, so we disable the container healthcheck and let Traefik's own
+    # HTTP probe decide reachability.
+    healthcheck:
+      disable: true
 
 volumes:
   hh-db-data:
