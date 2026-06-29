@@ -1,28 +1,35 @@
 # =====================================================================
-# Hack Heroes — Easypanel "Compose" deployment
+# Hack Heroes — Easypanel "Compose" deployment (PASTE-READY)
 # Domain: heroes.beonflow.de   (served via Easypanel's Traefik + auto-SSL)
 #
 # HOW TO USE IN EASYPANEL
-#   1. Create a new service of type "Compose".
-#   2. Point it at this repo and set the compose file path to
-#      docker-compose.easypanel.yml
-#   3. Deploy. Traefik picks up the labels on the `site` service and
-#      routes https://heroes.beonflow.de -> site:8080 with a free cert.
+#   1. Project -> + Service -> Compose.
+#   2. Paste THIS ENTIRE FILE into the "Content" field. (You do NOT point it
+#      at the repo — Compose services run the pasted YAML directly and cannot
+#      read repo files, which is why everything here is self-contained:
+#      images come from ghcr.io, and the two setup scripts are inlined.)
+#   3. Deploy.
+#   4. Open the service -> Domains tab -> add:
+#         Host: heroes.beonflow.de   Service: site   Port: 8080   HTTPS: on
+#      Traefik then routes https://heroes.beonflow.de -> site:8080.
 #
-# Notes vs the local docker-compose.yml:
-#   - No host ports are published. Easypanel's Traefik reaches the site
-#     container over the shared `easypanel` network using the labels below.
-#   - The browser only talks to https://heroes.beonflow.de; nginx (inside
-#     `site`) reverse-proxies /auth/v1, /rest/v1, /realtime/v1 to the
-#     backend services on the internal network.
-#   - All config lives in this file's `environment:` blocks (Easypanel
-#     compose doesn't read a separate .env by default).
+# The browser only ever talks to https://heroes.beonflow.de. nginx inside the
+# `site` image reverse-proxies /auth/v1, /rest/v1, /realtime/v1 to the backend
+# services on the internal network.
+#
+# Images (public, on GitHub Container Registry):
+#   ghcr.io/oldjoba/hackheroes-site:latest  -> nginx + app + prod config baked in
+#   ghcr.io/oldjoba/hackheroes-db:latest    -> supabase/postgres + schema baked in
+#
+# SECURITY: the secrets below are shared dev/demo values (also in the public
+# repo). Fine for a classroom demo behind RLS. To harden, regenerate
+# JWT_SECRET + the matching anon/service JWTs + POSTGRES_PASSWORD everywhere.
 # =====================================================================
 
 services:
 
   db:
-    image: supabase/postgres:15.1.1.78
+    image: ghcr.io/oldjoba/hackheroes-db:latest
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
@@ -37,21 +44,39 @@ services:
       JWT_EXP: "3600"
     volumes:
       - hh-db-data:/var/lib/postgresql/data
-      - ./selfhost/zzz-hackheroes-schema.sql:/docker-entrypoint-initdb.d/zzz-hackheroes-schema.sql:ro
 
+  # One-shot: give the Supabase service roles a password (they ship password-
+  # less). Must run as supabase_admin — the only superuser on this image.
   db-setup:
-    image: supabase/postgres:15.1.1.78
+    image: ghcr.io/oldjoba/hackheroes-db:latest
     restart: "no"
     depends_on:
       db:
         condition: service_healthy
-    entrypoint: ["sh", "/setup-roles.sh"]
     environment:
-      POSTGRES_PASSWORD: hackheroes-dev-postgres-pw
-      POSTGRES_DB: postgres
-      DB_HOST: db
-    volumes:
-      - ./selfhost/setup-roles.sh:/setup-roles.sh:ro
+      PGPASSWORD: hackheroes-dev-postgres-pw
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        echo "[db-setup] aligning Supabase service-role passwords…"
+        psql -v ON_ERROR_STOP=1 -U supabase_admin -h db -d postgres <<'SQL'
+        alter role supabase_auth_admin  with login password 'hackheroes-dev-postgres-pw';
+        alter role authenticator        with login password 'hackheroes-dev-postgres-pw';
+        alter role supabase_admin       with login password 'hackheroes-dev-postgres-pw';
+        do $$$$
+        begin
+          if exists (select 1 from pg_roles where rolname='supabase_storage_admin') then
+            execute 'alter role supabase_storage_admin with login password ''hackheroes-dev-postgres-pw''';
+          end if;
+          if exists (select 1 from pg_roles where rolname='supabase_realtime_admin') then
+            execute 'alter role supabase_realtime_admin with login password ''hackheroes-dev-postgres-pw''';
+          end if;
+        end
+        $$$$;
+        SQL
+        echo "[db-setup] done."
 
   auth:
     image: supabase/gotrue:v2.151.0
@@ -124,43 +149,63 @@ services:
       SEED_SELF_HOST: "true"
       RUN_JANITOR: "true"
 
+  # One-shot: register the Realtime tenant(s) so the leaderboard websocket
+  # resolves regardless of how the host is parsed. Inlined (no mounted file).
   realtime-setup:
     image: alpine:3.20
     restart: "no"
     depends_on:
       - realtime
-    entrypoint: ["sh", "-c", "apk add --no-cache curl >/dev/null && sh /setup-realtime-tenant.sh"]
     environment:
       REALTIME_URL: http://realtime:4000
-      # Register every host form the client might use so the leaderboard
-      # websocket finds its tenant regardless of how Realtime parses the host.
       TENANT_EXTERNAL_IDS: "heroes.beonflow.de,heroes,localhost"
       JWT_SECRET: hackheroes-super-secret-dev-jwt-secret-min-32-chars-long-0001
       ADMIN_JWT: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwiaWF0IjoxNzA0MDY3MjAwLCJleHAiOjIwMTk2NjcyMDAsInJvbGUiOiJzZXJ2aWNlX3JvbGUifQ.aNz9ykNuOLKiGMY_fszQIfiQQEcezpJHCIpVCVVBORs
       DB_HOST: db
       POSTGRES_DB: postgres
       POSTGRES_PASSWORD: hackheroes-dev-postgres-pw
-    volumes:
-      - ./selfhost/setup-realtime-tenant.sh:/setup-realtime-tenant.sh:ro
+    # NOTE: every shell `$` is written as `$$` so Docker Compose passes a
+    # literal `$` to the container shell instead of interpolating it itself.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -eu
+        apk add --no-cache curl >/dev/null
+        RT="$$REALTIME_URL"
+        echo "[realtime-setup] waiting for Realtime API at $$RT …"
+        i=0
+        until [ "$$(curl -s -o /dev/null -w '%{http_code}' "$$RT/" 2>/dev/null)" != "000" ] || [ "$$i" -ge 60 ]; do
+          i=$$((i+1)); sleep 2
+        done
+        register() {
+          ext="$$1"
+          echo "[realtime-setup] registering tenant '$$ext' …"
+          code=$$(curl -s -o /tmp/rt.out -w '%{http_code}' -X POST "$$RT/api/tenants" \
+            -H "Authorization: Bearer $$ADMIN_JWT" \
+            -H "Content-Type: application/json" \
+            -d "{\"tenant\":{\"external_id\":\"$$ext\",\"name\":\"$$ext\",\"jwt_secret\":\"$$JWT_SECRET\",\"extensions\":[{\"type\":\"postgres_cdc_rls\",\"settings\":{\"db_host\":\"$$DB_HOST\",\"db_name\":\"$$POSTGRES_DB\",\"db_port\":\"5432\",\"db_user\":\"supabase_admin\",\"db_password\":\"$$POSTGRES_PASSWORD\",\"region\":\"us-east-1\",\"poll_interval_ms\":100,\"poll_max_changes\":100,\"poll_max_record_bytes\":1048576,\"ssl_enforced\":false,\"publication\":\"supabase_realtime\",\"slot_name\":\"supabase_realtime_replication_slot\"}}]}}")
+          echo "[realtime-setup]   -> HTTP $$code"
+          case "$$code" in 2*|409) return 0 ;; *) echo "[realtime-setup]   $$(cat /tmp/rt.out)"; return 0 ;; esac
+        }
+        echo "[realtime-setup] tenant ids: $$TENANT_EXTERNAL_IDS"
+        OLDIFS="$$IFS"; IFS=','
+        for ext in $$TENANT_EXTERNAL_IDS; do
+          ext="$$(echo "$$ext" | tr -d ' ')"
+          [ -n "$$ext" ] && register "$$ext"
+        done
+        IFS="$$OLDIFS"
+        echo "[realtime-setup] done."
 
-  # The web frontend. Easypanel's Traefik binds your domain to THIS service.
-  # Do NOT add Traefik labels here — in Easypanel you map the domain in the
-  # UI: Service "site" -> Domains -> add heroes.beonflow.de -> port 8080.
-  # nginx (inside this container) reverse-proxies /auth/v1, /rest/v1, and
-  # /realtime/v1 to the backend services on the internal compose network, so
-  # the browser only ever talks to https://heroes.beonflow.de.
+  # The web frontend. In Easypanel, map your domain to THIS service in the
+  # Domains tab: Host heroes.beonflow.de -> Service site -> Port 8080.
   site:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/oldjoba/hackheroes-site:latest
     restart: unless-stopped
     depends_on:
       - auth
       - rest
       - realtime
-    # Override the baked-in supabase.json so the browser targets the public domain.
-    volumes:
-      - ./config/supabase.prod.json:/usr/share/nginx/html/config/supabase.json:ro
 
 volumes:
   hh-db-data:

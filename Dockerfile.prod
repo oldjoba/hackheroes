@@ -1,0 +1,31 @@
+# Self-contained production site image for Hack Heroes (Easypanel / any host).
+# Serves the static app AND reverse-proxies /auth/v1, /rest/v1, /realtime/v1
+# to the backend services. The production Supabase config (pointing at the
+# public domain) is baked in, so no host bind-mounts are needed.
+FROM nginx:1.27-alpine
+
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Site content
+COPY . /usr/share/nginx/html
+
+# nginx gateway config (serves site + proxies the backend)
+COPY nginx.conf /etc/nginx/conf.d/hackheroes.conf
+
+# Bake the production runtime config over the default (browser -> public domain).
+COPY config/supabase.prod.json /usr/share/nginx/html/config/supabase.json
+
+# Drop build/stack files from the served dir.
+RUN rm -f /usr/share/nginx/html/Dockerfile \
+          /usr/share/nginx/html/Dockerfile.prod \
+          /usr/share/nginx/html/.dockerignore \
+          /usr/share/nginx/html/docker-compose.yml \
+          /usr/share/nginx/html/docker-compose.easypanel.yml \
+          /usr/share/nginx/html/nginx.conf
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1
+
+CMD ["nginx", "-g", "daemon off;"]

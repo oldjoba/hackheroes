@@ -1,0 +1,8 @@
+# Self-contained Hack Heroes database image.
+# Bakes the classroom schema into the Supabase Postgres init dir so the whole
+# stack can be deployed image-only (no host bind-mounts), e.g. on Easypanel.
+FROM supabase/postgres:15.1.1.78
+
+# Classroom schema auto-applies AFTER Supabase's own init-scripts + migrate.sh
+# (filename sorts after them).
+COPY zzz-hackheroes-schema.sql /docker-entrypoint-initdb.d/zzz-hackheroes-schema.sql
