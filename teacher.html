@@ -117,18 +117,30 @@
 
       <!-- Create class -->
       <div class="box">
-        <div class="field has-addons">
-          <div class="control is-expanded">
+        <div class="field">
+          <label class="label is-small mb-1">Class name</label>
+          <div class="control">
             <input class="input" type="text" x-model="newClassName"
-                   placeholder="New class name, e.g. Year 7 Cyber Club"
+                   placeholder="e.g. Year 7 Cyber Club"
                    @keydown.enter="createClass()">
           </div>
+        </div>
+        <div class="field">
+          <label class="label is-small mb-1">
+            🎁 Winner prize <span class="has-text-grey">(optional)</span>
+          </label>
           <div class="control">
-            <button class="button is-link" :class="loading ? 'is-loading' : ''" @click="createClass()">
-              <span class="icon"><ion-icon name="add-outline"></ion-icon></span>
-              <span>Create class</span>
-            </button>
+            <input class="input" type="text" x-model="newClassPrize"
+                   placeholder="e.g. Pizza party! — stays a mystery until someone wins"
+                   @keydown.enter="createClass()">
           </div>
+          <p class="help">Hidden from students until the first hero finishes all challenges.</p>
+        </div>
+        <div class="control">
+          <button class="button is-link" :class="loading ? 'is-loading' : ''" @click="createClass()">
+            <span class="icon"><ion-icon name="add-outline"></ion-icon></span>
+            <span>Create class</span>
+          </button>
         </div>
       </div>
 
@@ -157,6 +169,23 @@
                     <span class="copyable" x-text="joinUrl(c.join_code)"></span>
                     <a @click.prevent="copy(joinUrl(c.join_code), 'Join link copied!')" class="ml-2 is-underlined">copy link</a>
                   </p>
+                </div>
+
+                <div class="field">
+                  <label class="label is-small mb-1">🎁 Winner prize</label>
+                  <div class="field has-addons">
+                    <div class="control is-expanded">
+                      <input class="input" type="text" x-model="c.prize"
+                             placeholder="Mystery prize (optional)"
+                             @keydown.enter="savePrize(c)">
+                    </div>
+                    <div class="control">
+                      <button class="button" @click="savePrize(c)" title="Save prize">
+                        <span class="icon"><ion-icon name="save-outline"></ion-icon></span>
+                      </button>
+                    </div>
+                  </div>
+                  <p class="help">Revealed on the leaderboard when someone finishes first.</p>
                 </div>
               </div>
               <footer class="card-footer">
@@ -235,6 +264,7 @@
         teacher: null,
         classes: [],
         newClassName: '',
+        newClassPrize: '',
         allChallenges: [],     // [{id, name, stage}]
         assignClass: null,
         selectedIds: [],
@@ -301,12 +331,20 @@
           if (!name) { this.error = 'Please name the class.'; return; }
           this.error = ''; this.loading = true;
           try {
-            await ClassroomSync.createClass(name);
+            await ClassroomSync.createClass(name, this.newClassPrize);
             this.newClassName = '';
+            this.newClassPrize = '';
             await this.loadClasses();
             this.flash('Class created!');
           } catch (e) { this.fail(e); return; }
           this.loading = false;
+        },
+
+        async savePrize(c) {
+          try {
+            await ClassroomSync.setPrize(c.id, c.prize || '');
+            this.flash('Prize saved!');
+          } catch (e) { this.fail(e); }
         },
 
         joinUrl(code) {

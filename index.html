@@ -22,6 +22,36 @@
     <link rel="stylesheet" href="assets/vendor/css/bulma.min.css">
     <link rel="stylesheet" href="assets/css/main.css">
 
+    <!-- Kahoot-style challenge tiles -->
+    <style>
+      .kahoot-grid {
+        display:grid; gap:1rem;
+        grid-template-columns:repeat(auto-fill, minmax(15rem, 1fr));
+      }
+      .kahoot-tile {
+        display:flex; flex-direction:column; align-items:center; text-align:center;
+        border:none; border-radius:1rem; color:#fff; cursor:pointer;
+        padding:1.5rem 1rem 1.25rem; min-height:14rem;
+        box-shadow:0 6px 0 rgba(0,0,0,.18); transition:transform .12s ease, box-shadow .12s ease;
+        position:relative; text-decoration:none;
+      }
+      .kahoot-tile:hover { transform:translateY(-4px); box-shadow:0 10px 0 rgba(0,0,0,.18); color:#fff; }
+      .kahoot-tile:active { transform:translateY(2px); box-shadow:0 3px 0 rgba(0,0,0,.18); }
+      .kahoot-tile img { width:84px; height:84px; object-fit:contain;
+                         filter:drop-shadow(0 2px 4px rgba(0,0,0,.25)); margin-bottom:.6rem; }
+      .kahoot-title { font-size:1.25rem; font-weight:800; line-height:1.15; }
+      .kahoot-obj   { font-size:.85rem; opacity:.92; margin-top:.35rem;
+                      display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+      .kahoot-foot  { margin-top:auto; padding-top:.75rem; display:flex; gap:.5rem;
+                      align-items:center; font-weight:700; font-size:.85rem; }
+      .kahoot-c0{background:#e21b3c;} .kahoot-c1{background:#1368ce;}
+      .kahoot-c2{background:#26890c;} .kahoot-c3{background:#ffa602;color:#222;}
+      .kahoot-c4{background:#9c27b0;} .kahoot-c5{background:#0aa3a3;}
+      .kahoot-c3 .kahoot-foot, .kahoot-c3:hover { color:#222; }
+      .kahoot-done { position:absolute; top:.6rem; right:.7rem; font-size:1.5rem; }
+      .kahoot-badge { background:rgba(0,0,0,.22); border-radius:9999px; padding:.15rem .6rem; }
+    </style>
+
     <!-- Alpine.js -->
     <script defer src="assets/vendor/js/alpine.min.js"></script>
 </head>
@@ -137,35 +167,22 @@
         
         <section class="section">
         <h1 class="title" x-text="stageMap[key]"></h1>
-        <div class="grid is-col-min-15">
-          <template x-for="challenge in stage">
-            <div class="cell">
-              <div class="card">
-                <div class="card-image pt-4 pl-4 pr-4">
-                  <figure class="image is-128x128 mx-auto">
-                    <img
-                      :src="'challenges/'+challenge.id+'/icon.png'"
-                    />
-                  </figure>
-                </div>
-                <div class="card-content">
-                  <div class="content mb-0">
-                    <h5 x-text="challenge.name" class="title is-5 mb-1"></h5>
-                  </div>
-                  <div class="content mt-0 two-line-truncate" x-text="challenge.objective">
-                  </div>
-                </div>
-                <footer class="card-footer">
-                  <div class="card-footer-item" :class="challenge.answerState==='Complete' ? 'has-text-success' : ''">
-                    <ion-icon name="close" x-show="challenge.answerState==='Incomplete'"></ion-icon> 
-                    <ion-icon name="checkmark" x-show="challenge.answerState==='Complete'"></ion-icon> 
-                    &nbsp;<span x-text="challenge.answerState"></span>
-                  </div>
-                  <div class="card-footer-item"><div class="block has-text-centered"><b x-text="challenge.numHintsRead">0</b>/<span x-text="challenge.numHints"></span><br>hints used</div></div>
-                  <a :href="'challenge.html?id='+challenge.id" class="card-footer-item"><ion-icon name="open-outline"></ion-icon> &nbsp;Open</a>
-                </footer>
+        <div class="kahoot-grid">
+          <template x-for="(challenge, ci) in stage" :key="challenge.id">
+            <a class="kahoot-tile" :class="'kahoot-c'+(ci % 6)"
+               :href="'challenge.html?id='+challenge.id">
+              <span class="kahoot-done" x-show="challenge.answerState==='Complete'">✅</span>
+              <img :src="'challenges/'+challenge.id+'/icon.png'" :alt="challenge.name">
+              <div class="kahoot-title" x-text="challenge.name"></div>
+              <div class="kahoot-obj" x-text="challenge.objective"></div>
+              <div class="kahoot-foot">
+                <span class="kahoot-badge"
+                      x-text="challenge.answerState==='Complete' ? 'Complete' : 'Play ▶'"></span>
+                <span class="kahoot-badge">
+                  💡 <span x-text="challenge.numHintsRead">0</span>/<span x-text="challenge.numHints"></span>
+                </span>
               </div>
-            </div>
+            </a>
           </template>
         </div>
       </section>

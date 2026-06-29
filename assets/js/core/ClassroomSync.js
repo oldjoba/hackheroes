@@ -269,11 +269,13 @@
      * Creates a class with a unique join code.
      * @param {string} name
      */
-    async createClass(name) {
+    async createClass(name, prize) {
       const sb = await client();
       if (!sb) throw new Error('Classroom features are not configured.');
       const teacher = await this.currentTeacher();
       if (!teacher) throw new Error('Please sign in first.');
+
+      const prizeVal = (prize && prize.trim()) ? prize.trim() : null;
 
       // Try a few codes in case of a rare collision on the unique index.
       let lastError = null;
@@ -281,7 +283,7 @@
         const code = this.generateJoinCode();
         const { data, error } = await sb
           .from('classes')
-          .insert({ teacher_id: teacher.id, name: name.trim(), join_code: code })
+          .insert({ teacher_id: teacher.id, name: name.trim(), join_code: code, prize: prizeVal })
           .select()
           .single();
         if (!error) return data;
@@ -290,6 +292,19 @@
         if (error.code !== '23505') break;
       }
       throw lastError || new Error('Could not create class.');
+    },
+
+    /** Sets (or clears) the winner prize for a class the teacher owns. */
+    async setPrize(classId, prize) {
+      const sb = await client();
+      if (!sb) throw new Error('Classroom features are not configured.');
+      const prizeVal = (prize && prize.trim()) ? prize.trim() : null;
+      const { error } = await sb
+        .from('classes')
+        .update({ prize: prizeVal })
+        .eq('id', classId);
+      if (error) throw error;
+      return prizeVal;
     },
 
     /** Lists the signed-in teacher's classes (newest first). */

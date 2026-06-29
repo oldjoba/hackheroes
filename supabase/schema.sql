@@ -34,6 +34,10 @@ create table if not exists public.classes (
   created_at  timestamptz not null default now()
 );
 create index if not exists classes_teacher_idx on public.classes (teacher_id);
+-- Winner prize (revealed on the leaderboard when someone finishes all
+-- challenges). Added via ALTER so existing databases pick it up too.
+alter table public.classes add column if not exists prize text;
+
 create index if not exists classes_code_idx    on public.classes (join_code);
 
 -- Students: one row per anonymous auth user per class. No PII, no password.

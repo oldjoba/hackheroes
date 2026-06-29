@@ -35,6 +35,36 @@
       animation: hhlive 1.4s ease-in-out infinite;
     }
     @keyframes hhlive { 0%,100%{opacity:1;} 50%{opacity:0.25;} }
+
+    /* ---- Kahoot-style podium ---- */
+    .podium { display:flex; justify-content:center; align-items:flex-end;
+              gap:1rem; margin:1.5rem 0 2rem; flex-wrap:wrap; }
+    .podium-col { display:flex; flex-direction:column; align-items:center;
+                  width:9.5rem; max-width:30vw; }
+    .podium-name { font-weight:800; font-size:1.05rem; margin-bottom:.35rem;
+                   text-align:center; word-break:break-word; }
+    .podium-bar { width:100%; border-radius:.75rem .75rem 0 0; color:#fff;
+                  display:flex; flex-direction:column; align-items:center;
+                  justify-content:flex-start; padding:.75rem .5rem 1rem;
+                  box-shadow:0 6px 0 rgba(0,0,0,.18); }
+    .podium-medal { font-size:2.4rem; line-height:1; }
+    .podium-score { font-weight:700; opacity:.95; margin-top:.25rem; }
+    .podium-1 .podium-bar { height:11rem; background:#ffb01f; }   /* gold   */
+    .podium-2 .podium-bar { height:8.5rem; background:#7f8c9b; }  /* silver */
+    .podium-3 .podium-bar { height:7rem;  background:#cd7f4d; }   /* bronze */
+    .podium-1 { order:2; } .podium-2 { order:1; } .podium-3 { order:3; }
+    @media (max-width:520px){
+      .podium-1,.podium-2,.podium-3{ order:0; } /* stack on small screens */
+    }
+
+    /* ---- Prize reveal ---- */
+    .prize-card { border:3px dashed #ffdd57; border-radius:1rem;
+                  background:linear-gradient(135deg,#3a2f00,#1f1a00);
+                  padding:1.25rem; text-align:center; margin:1rem 0 1.5rem; }
+    .prize-mystery { font-size:1.3rem; font-weight:700; }
+    .prize-reveal  { font-size:1.6rem; font-weight:800; color:#ffdd57; }
+    .prize-pop { animation: hhpop .6s ease-out; }
+    @keyframes hhpop { 0%{transform:scale(.7);opacity:0;} 60%{transform:scale(1.08);} 100%{transform:scale(1);opacity:1;} }
   </style>
 
   <script defer src="assets/vendor/js/alpine.min.js"></script>
@@ -99,6 +129,36 @@
              x-text="winner || '—'"></p>
         </div>
       </div>
+    </div>
+
+    <!-- Prize card: mystery until someone wins, then revealed -->
+    <div class="prize-card" x-show="ready && hasPrize" x-cloak>
+      <p class="heading mb-1" style="letter-spacing:.1em">🎁 Winner's Prize</p>
+      <template x-if="!winner">
+        <p class="prize-mystery">Mystery prize — finish first to reveal it! 🔒</p>
+      </template>
+      <template x-if="winner">
+        <div class="prize-pop">
+          <p class="prize-reveal" x-text="prize"></p>
+          <p class="is-size-6 mt-1">won by <strong x-text="winner"></strong> 🏆</p>
+        </div>
+      </template>
+    </div>
+
+    <!-- Kahoot-style podium (top 3) -->
+    <div class="podium" x-show="ready && standings.length > 0" x-cloak>
+      <template x-for="(row, i) in standings.slice(0,3)" :key="row.studentId">
+        <div class="podium-col" :class="'podium-'+(i+1)">
+          <div class="podium-name" x-text="row.nickname"></div>
+          <div class="podium-bar">
+            <span class="podium-medal" x-text="['🥇','🥈','🥉'][i]"></span>
+            <span class="podium-score">
+              <span x-text="row.doneCount"></span>/<span x-text="assignments.length"></span>
+            </span>
+            <span class="is-size-7" x-show="row.finishedAll">✅ Done!</span>
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- Winner banner -->
@@ -190,6 +250,8 @@
       return {
         classId: new URLSearchParams(location.search).get('class') || '',
         className: '',
+        prize: '',                // winner prize text (hidden until a winner)
+        hasPrize: false,          // whether a prize was set for this class
         assignments: [],          // [challengeId, ...]
         students: {},             // studentId -> { studentId, nickname, done:Set, hints, lastActivity, finishedAll, _flash, _finishOrder }
         ready: false,
@@ -242,10 +304,12 @@
           try {
             const sb = window.xaSupabase;
 
-            // Class name
-            const cls = await sb.from('classes').select('name').eq('id', this.classId).single();
+            // Class name + winner prize
+            const cls = await sb.from('classes').select('name, prize').eq('id', this.classId).single();
             if (cls.error) throw cls.error;
             this.className = cls.data.name;
+            this.prize = cls.data.prize || '';
+            this.hasPrize = !!(cls.data.prize && cls.data.prize.trim());
 
             // Assignments
             const asg = await sb.from('assignments')
